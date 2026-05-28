@@ -1,6 +1,10 @@
 # Modules for functionality
 import argparse
 import tomlkit
+# Modules for style
+from rich.console import Console
+
+console = Console()
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--read", action="store_true", help="Reads the config file")
@@ -20,7 +24,7 @@ def edit_toml(key, value, path="backend/storage/configs.toml"):
         tomlkit.dump(config, file)
 
 if args.read:
-    print(read_toml(args.path))
+    console.print(read_toml(args.path))
 
 if args.set:
     key,value = args.set
