@@ -12,8 +12,11 @@ parser.add_argument("--path", default="backend/storage/todos.txt", help="Path to
 args = parser.parse_args()
 
 def get_todos():
-    with open(args.path, "r") as file:
-        return file.read()
+    try:
+        with open(args.path, "r") as file:
+            return file.read()
+    except FileNotFoundError:
+        return "No todos found."
     
 def add_todo(title, description):
     with open(args.path, "a") as file:

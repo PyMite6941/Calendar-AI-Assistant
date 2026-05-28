@@ -4,6 +4,8 @@ from streamlit_calendar import calendar
 
 from backend.tools.calendar_events import get_calendar_events
 
+pages = ["Description", "Calendar", "Todo", "Settings"]
+
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
     st.session_state["calendar"] = get_calendar_events()

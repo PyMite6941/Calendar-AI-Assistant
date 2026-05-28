@@ -11,8 +11,11 @@ args.add_argument("--path", default="backend/storage/calendar_events.json", help
 args = args.parse_args()
 
 def get_calendar_events():
-    with open(args.path, "r") as file:
-        return file.read()
+    try:
+        with open(args.path, "r") as file:
+            return file.read()
+    except FileNotFoundError:
+        return "[]"
     
 def save_calendar_events(events):
     with open(args.path, "w") as file:

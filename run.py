@@ -19,16 +19,16 @@ choice = questionary.select(
     pointer='>'
 ).ask()
 if choice == "Run in CLI":
-    subprocess.run(["python","frontend/cli/cli.py"],verbose=True)
+    subprocess.run(["python","frontend/cli/cli.py"])
 elif choice == "Run in Streamlit":
-    subprocess.run(["streamlit","run","frontend/streamlit/Description.py"],verbose=True)
+    subprocess.run(["streamlit","run","frontend/streamlit/Description.py"])
 elif choice == "Install necessary packages":
     os = sys.platform
     if os.startswith("win"):
-        subprocess.run(["bash install.sh"],verbose=True)
+        subprocess.run(["bash install.sh"])
     elif os.startswith("linux") or os.startswith("darwin"):
-        subprocess.run(["chmod","+x","install.sh"],verbose=True)
-        subprocess.run(["./install.sh"],verbose=True)
+        subprocess.run(["chmod","+x","install.sh"])
+        subprocess.run(["./install.sh"])
     else:
         console.print("[red]Unsupported operating system. Please install the necessary packages manually.[/red]")
 else:
