@@ -9,6 +9,9 @@ if [ $OS = "Linux" ] || [ $OS = "Darwin" ]; then
     source .venv/Scripts/activate.bat
 else if [ $OS = "Windows" ]; then
     .venv/Scripts/Activate.ps1
+else
+    echo "Unsupported operating system. Please activate the virtual environment manually."
+    exit 1
 fi
 echo "What is your name?"
 read $name
