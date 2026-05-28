@@ -1,0 +1,7 @@
+[apis]
+gemini_api=""
+groq_api=""
+mistral_api=""
+
+[user]
+username=""
