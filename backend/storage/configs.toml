@@ -3,5 +3,12 @@ gemini_api=""
 groq_api=""
 mistral_api=""
 
+[ollama]
+model_name=""
+
+[google]
+user_email=""
+user_passwords=""
+
 [user]
 username=""

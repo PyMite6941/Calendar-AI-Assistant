@@ -12,6 +12,7 @@ args = args.parse_args()
 def store_data(data):
     with open(args.path, "w") as file:
         file.write(data)
+    return "Data stored successfully."
 
 if args.store:
-    store_data(args.store)
+    console.print(store_data(args.store))
