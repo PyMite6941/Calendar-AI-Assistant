@@ -22,7 +22,7 @@ def edit_toml(key, value, path="backend/storage/configs.toml"):
     config[key] = value
     with open(path,'w') as file:
         tomlkit.dump(config, file)
-    return f"Key '{key}' set to '{value}' successfully."
+    return f"[bold green]Key '{key}' set to '{value}' successfully.[/]" if args.set else f"[bold red]Failed to set key '{key}'.[/]"
 
 if args.read:
     console.print(read_toml(args.path))
@@ -38,4 +38,4 @@ if args.delete:
         del config[key]
         with open(args.path, 'w') as file:
             tomlkit.dump(config, file)
-    console.print(f"Key '{key}' deleted successfully.")
+    console.print(f"[bold green]Key '{key}' deleted successfully.[/]" if key in config else f"[bold red]Key '{key}' not found.[/]")

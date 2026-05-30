@@ -20,7 +20,7 @@ def get_calendar_events():
 def save_calendar_events(events):
     with open(args.path, "w") as file:
         file.write(events)
-    return "Calendar events saved successfully."
+    return "[bold green]Calendar events saved successfully.[/]" if args.save else "[bold red]Failed to save calendar events.[/]"
 
 if args.get:
     console.print(get_calendar_events())

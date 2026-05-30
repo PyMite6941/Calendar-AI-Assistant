@@ -16,12 +16,12 @@ def get_todos():
         with open(args.path, "r") as file:
             return file.read()
     except FileNotFoundError:
-        return "No todos found."
+        return "[bold red]No todos found.[/]"
     
 def add_todo(title, description):
     with open(args.path, "a") as file:
         file.write(f"{title}: {description}\n")
-    return f"Added todo: {title}"
+    return f"[bold green]Added todo: {title}[/]"
 
 def delete_todo(todo_id):
     with open(args.path, "r") as file:
@@ -30,9 +30,9 @@ def delete_todo(todo_id):
         deleted = todos.pop(int(todo_id))
         with open(args.path, "w") as file:
             file.writelines(todos)
-        return f"Deleted todo: {deleted.strip()}"
+        return f"[bold green]Deleted todo: {deleted.strip()}[/]"
     else:
-        return "Invalid ID"
+        return "[bold red]Invalid ID.[/]"
     
 if args.get:
     console.print(get_todos())
