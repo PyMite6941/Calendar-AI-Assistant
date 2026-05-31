@@ -1,2 +1,3 @@
 __pycache__
-configs.toml
+secrets.toml
+credentials.json
