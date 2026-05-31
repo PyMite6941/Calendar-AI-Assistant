@@ -1,1 +1,4 @@
-
+analyze_request_task
+retrieve_data_task
+process_request_task
+verify_response_task
