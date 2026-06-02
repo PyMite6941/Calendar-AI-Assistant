@@ -1,16 +1,28 @@
 # Modules for functionality
 import streamlit as st
 from streamlit_calendar import calendar
+import subprocess
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
-from backend.tools.calendar_events import get_calendar_events
+
+def get_calendar_events():
+    result = subprocess.run(["python", "backend/tools/get_calendar_events.py","--get"], capture_output=True, text=True, check=True)
+    return result.stdout
+
+def get_config(key, option, path, default=None):
+    result = subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--default", default, "--path", path], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+def set_config(key, value, path):
+    subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--default", value, "--path", path], capture_output=True, text=True, check=True)
 
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
     st.session_state["calendar"] = get_calendar_events()
+    st.session_state["calendar_view"] = get_config('calendar_view', 'dayGridMonth', 'backend/storage/configs.toml')
 
 def description_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -25,7 +37,7 @@ def calendar_page():
     st.title("Your Calendar, AI Managed")
 
     calendar_options = {
-        "initialView": "dayGridMonth",
+        "initialView": st.session_state["calendar_view"],
         "headerToolbar": {
             "left": "prev,next today",
             "center": "title",
@@ -49,10 +61,21 @@ def calendar_page():
 def settings_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Settings")
-
     st.subheader("User Preferences")
-    st.text_input("Preferred Calendar View", value="Month")
-    st.text_input("Notification Preferences", value="Email, SMS")
+    calendar_view = st.text_input("Preferred Calendar View", value="Month")
+    notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
+    api_provider = st.text_input("API Provider", value="OpenAI")
+    api_key = st.text_input("API Key", type="password")
+    if st.button("Save Preferences"):
+        st.session_state["calendar_view"] = calendar_view
+        set_config("calendar_view", calendar_view, "backend/storage/configs.toml")
+        st.session_state["notification_preferences"] = notification_preferences
+        set_config("notification_preferences", notification_preferences, "backend/storage/configs.toml")
+        st.session_state["api_provider"] = api_provider
+        set_config("api", api_provider, "backend/storage/secrets.toml")
+        st.session_state["api_key"] = api_key
+        set_config("api_key", api_key, "backend/storage/secrets.toml")
+        st.success("Preferences saved successfully!")
 
 def todo_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -72,7 +95,7 @@ pages = [
     st.Page(settings_page, title="Settings", icon=":material/settings:"),
 ]
 
-current_page = st.navigation(pages, default="Description",position="top")
+current_page = st.navigation(pages,position="top")
 current_page.run()
 
 with st.sidebar:
