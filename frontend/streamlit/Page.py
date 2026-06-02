@@ -12,7 +12,7 @@ def get_calendar_events():
     result = subprocess.run(["python", "backend/tools/get_calendar_events.py","--get"], capture_output=True, text=True, check=True)
     return result.stdout
 
-def get_config(key, option, path, default=None):
+def get_config(key, path, option=None, default=None):
     result = subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--default", default, "--path", path], capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
@@ -22,7 +22,7 @@ def set_config(key, value, path):
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
     st.session_state["calendar"] = get_calendar_events()
-    st.session_state["calendar_view"] = get_config('calendar_view', 'dayGridMonth', 'backend/storage/configs.toml')
+    st.session_state["calendar_view"] = get_config('calendar_view', 'backend/storage/configs.toml', default='dayGridMonth')
 
 def description_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -52,11 +52,8 @@ def calendar_page():
         key="streamlit_calendar",
     )
 
-    with st.sidebar:
-        st.header("Talk to an AI Assistant")
-        with st.form("ai_form"):
-            user_input = st.text_input("Ask me anything about your calendar:")
-            submit_button = st.form_submit_button("Submit")
+    if state:
+        st.write("Calendar Info", state)
 
 def settings_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -68,13 +65,13 @@ def settings_page():
     api_key = st.text_input("API Key", type="password")
     if st.button("Save Preferences"):
         st.session_state["calendar_view"] = calendar_view
-        set_config("calendar_view", calendar_view, "backend/storage/configs.toml")
+        set_config("calendar_view", "backend/storage/configs.toml", calendar_view)
         st.session_state["notification_preferences"] = notification_preferences
-        set_config("notification_preferences", notification_preferences, "backend/storage/configs.toml")
+        set_config("notification_preferences", "backend/storage/configs.toml", notification_preferences)
         st.session_state["api_provider"] = api_provider
-        set_config("api", api_provider, "backend/storage/secrets.toml")
+        set_config("api", "backend/storage/secrets.toml", api_provider)
         st.session_state["api_key"] = api_key
-        set_config("api_key", api_key, "backend/storage/secrets.toml")
+        set_config("api_key", "backend/storage/secrets.toml", api_key)
         st.success("Preferences saved successfully!")
 
 def todo_page():
