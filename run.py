@@ -21,7 +21,7 @@ choice = questionary.select(
 if choice == "Run in CLI":
     subprocess.run(["python","frontend/cli/cli.py"])
 elif choice == "Run in Streamlit":
-    subprocess.run(["streamlit","run","frontend/streamlit/Description.py"])
+    subprocess.run(["streamlit","run","frontend/streamlit/Page.py"])
 elif choice == "Install necessary packages":
     os = sys.platform
     if os.startswith("win"):
