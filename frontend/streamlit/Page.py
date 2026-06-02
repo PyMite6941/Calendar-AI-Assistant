@@ -72,7 +72,7 @@ pages = [
     st.Page(settings_page, title="Settings", icon=":material/settings:"),
 ]
 
-current_page = st.navigation(pages, default="Description",position="top")
+current_page = st.navigation(pages,position="top")
 current_page.run()
 
 with st.sidebar:
