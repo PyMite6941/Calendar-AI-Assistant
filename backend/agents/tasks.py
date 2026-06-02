@@ -46,7 +46,7 @@ verify_response_task = Task(
   """, 
   expected_output="""
   A verified response that is accurate, 
-  complete, and ready to return to the user.
+  complete, consistent, and ready to return to the user.
   """, 
   agent=verification_agent
 )
