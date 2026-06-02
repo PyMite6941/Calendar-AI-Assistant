@@ -65,6 +65,16 @@ def todo_page():
         if new_task:
             st.success(f"Task '{new_task}' added to your todo list!")
 
+pages = [
+    st.Page(description_page, title="Description",icon=":material/description:"),
+    st.Page(calendar_page, title="Calendar", icon=":material/calendar_month:"),
+    st.Page(todo_page, title="Todo List", icon=":material/checklist:"),
+    st.Page(settings_page, title="Settings", icon=":material/settings:"),
+]
+
+current_page = st.navigation(pages, default="Description",position="top")
+current_page.run()
+
 with st.sidebar:
     st.title("Talk to your Calendar AI Assistant")
     with st.form("ai_form"):
