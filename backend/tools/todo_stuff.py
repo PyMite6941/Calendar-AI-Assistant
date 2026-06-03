@@ -1,45 +1,45 @@
-# Modules for functionality
 import argparse
-# Modules for style
 from rich.console import Console
 
 console = Console()
 parser = argparse.ArgumentParser()
 parser.add_argument("--get", action="store_true", help="Gets todo items")
-parser.add_argument("--add", nargs=2, metavar=('TITLE', 'DESCRIPTION'), help="Adds a todo item")
-parser.add_argument("--delete", metavar='ID', help="Deletes a todo item by ID")
+parser.add_argument("--add", nargs=2, metavar=("TITLE", "DESCRIPTION"), help="Adds a todo item")
+parser.add_argument("--delete", metavar="ID", help="Deletes a todo item by ID")
 parser.add_argument("--path", default="backend/storage/todos.txt", help="Path to the todo file")
 args = parser.parse_args()
 
 def get_todos():
     try:
-        with open(args.path, "r") as file:
-            return file.read()
+        with open(args.path, "r") as f:
+            return f.read()
     except FileNotFoundError:
-        return "[bold red]No todos found.[/]"
-    
+        return ""
+
 def add_todo(title, description):
-    with open(args.path, "a") as file:
-        file.write(f"{title}: {description}\n")
+    with open(args.path, "a") as f:
+        f.write(f"{title}: {description}\n")
     return f"[bold green]Added todo: {title}[/]"
 
 def delete_todo(todo_id):
-    with open(args.path, "r") as file:
-        todos = file.readlines()
-    if 0 <= int(todo_id) < len(todos):
-        deleted = todos.pop(int(todo_id))
-        with open(args.path, "w") as file:
-            file.writelines(todos)
-        return f"[bold green]Deleted todo: {deleted.strip()}[/]"
-    else:
+    try:
+        with open(args.path, "r") as f:
+            todos = f.readlines()
+        idx = int(todo_id)
+        if 0 <= idx < len(todos):
+            deleted = todos.pop(idx)
+            with open(args.path, "w") as f:
+                f.writelines(todos)
+            return f"[bold green]Deleted: {deleted.strip()}[/]"
         return "[bold red]Invalid ID.[/]"
-    
+    except FileNotFoundError:
+        return "[bold red]No todos found.[/]"
+
 if args.get:
     console.print(get_todos())
 
 if args.add:
-    title, description = args.add
-    console.print(add_todo(title, description))
+    console.print(add_todo(*args.add))
 
 if args.delete:
     console.print(delete_todo(args.delete))
