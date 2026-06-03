@@ -3,6 +3,7 @@ read $choice
 OS=$(uname -s)
 if [ $choice = "Y" ] || [ $choice = "y" ]; then
     ollama pull llama3.1:8b
+    python backend/tools/config_editing.py --set local_model True
 fi
 python -m venv .venv
 if [ $OS = "Linux" ] || [ $OS = "Darwin" ]; then

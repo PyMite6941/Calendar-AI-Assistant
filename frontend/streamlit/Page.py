@@ -1,3 +1,4 @@
+import shutil
 import streamlit as st
 from streamlit_calendar import calendar
 import subprocess
@@ -17,8 +18,8 @@ def get_config(key, default=None):
     result = subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
     return result.stdout.strip()
 
-def set_config(key, value):
-    subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--set", str(value)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+def set_config(key, value, path="backend/storage/configs.toml"):
+    subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--set", str(value), "--path", path], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
 
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
@@ -29,10 +30,8 @@ if not st.session_state.get("initialized", False):
 def description_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Description of this project")
-
-    with open("README.md", "r") as file:
-        description = file.read()
-    st.markdown(description)
+    readme = PROJECT_ROOT / "README.md"
+    st.markdown(readme.read_text() if readme.exists() else "_No description yet._")
 
 def calendar_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -48,7 +47,7 @@ def calendar_page():
         "selectable": True,
     }
 
-    state = calendar(
+    calendar(
         events=st.session_state["calendar"],
         options=calendar_options,
         key="streamlit_calendar",
@@ -58,18 +57,40 @@ def settings_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Settings")
     st.subheader("User Preferences")
-    calendar_view = st.multiselect("Preferred Calendar View", options=["dayGridMonth", "timeGridWeek", "timeGridDay"], default=["dayGridMonth"])
+
+    calendar_view = st.selectbox(
+        "Preferred Calendar View",
+        options=["dayGridMonth", "timeGridWeek", "timeGridDay"],
+        index=["dayGridMonth", "timeGridWeek", "timeGridDay"].index(
+            st.session_state.get("calendar_view", "dayGridMonth")
+        ),
+    )
     notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
     api_provider = st.text_input("API Provider", value="OpenAI")
     api_key = st.text_input("API Key", type="password")
+
     if st.button("Save Preferences"):
+        if api_provider:
+            set_config("api_provider", api_provider, "backend/storage/secrets.toml")
+        if api_key:
+            set_config("api_key", api_key, "backend/storage/secrets.toml")
         st.session_state["calendar_view"] = calendar_view
         set_config("calendar_view", calendar_view)
         set_config("notification_preferences", notification_preferences)
         st.success("Preferences saved successfully!")
+
+    st.divider()
+    st.subheader("Google Account")
+    connect_button()
+
+    st.divider()
     if st.button("Clear Cache"):
-        subprocess.run(["python", "backend/tools/remove_cache.py"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-        st.success("Cache cleared successfully!")
+        removed = 0
+        for cache_dir in PROJECT_ROOT.rglob("__pycache__"):
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+                removed += 1
+        st.success(f"Cache cleared — {removed} folder(s) removed.")
 
 def todo_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
@@ -84,13 +105,13 @@ def todo_page():
             st.success(f"Task '{new_task}' added to your todo list!")
 
 pages = [
-    st.Page(description_page, title="Description",icon=":material/description:"),
+    st.Page(description_page, title="Description", icon=":material/description:"),
     st.Page(calendar_page, title="Calendar", icon=":material/calendar_month:"),
     st.Page(todo_page, title="Todo List", icon=":material/checklist:"),
     st.Page(settings_page, title="Settings", icon=":material/settings:"),
 ]
 
-current_page = st.navigation(pages,position="top")
+current_page = st.navigation(pages, position="top")
 current_page.run()
 
 with st.sidebar:
@@ -99,5 +120,3 @@ with st.sidebar:
     with st.form("ai_form"):
         user_input = st.text_input("Ask me anything about your calendar:")
         submit_button = st.form_submit_button("Submit")
-    st.divider()
-    connect_button()
