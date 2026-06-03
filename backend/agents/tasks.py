@@ -46,7 +46,23 @@ verify_response_task = Task(
   """, 
   expected_output="""
   A verified response that is accurate, 
-  complete, and ready to return to the user.
+  complete, consistent, and ready to return to the user.
   """, 
   agent=verification_agent
+)
+
+from crewai import Task
+from agents.planner import planner_agent
+
+schedule_task = Task(
+    description=(
+        "Create a realistic daily schedule for a student with:\n"
+        "- 2 hours studying\n"
+        "- 1 hour exercise\n" \
+        "- 3 hours project work\n"
+        "- breaks and meals included\n"
+        "Optimize for focus and energy levels."
+    ),
+    agent=planner_agent,
+    expected_output="A structured hourly schedule for the day."
 )
