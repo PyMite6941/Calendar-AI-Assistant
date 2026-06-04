@@ -14,14 +14,22 @@ parser.add_argument("--path", default="backend/storage/configs.toml", help="Path
 args = parser.parse_args()
 
 def read_toml(path="backend/storage/configs.toml"):
-    with open(path,'r') as file:
-        return tomlkit.load(file)
+    try:
+        with open(path,'r') as file:
+            return tomlkit.load(file)
+    except FileNotFoundError:
+        return {}
 
 def edit_toml(key, value, path="backend/storage/configs.toml"):
-    config = read_toml(path)
-    config[key] = value
-    with open(path,'w') as file:
-        tomlkit.dump(config, file)
+    try:
+        config = read_toml(path)
+        config[key] = value
+        with open(path,'w') as file:
+            tomlkit.dump(config, file)
+    except FileNotFoundError:
+        config = {key: value}
+        with open(path,'w') as file:
+            tomlkit.dump(config, file)
     return f"[bold green]Key '{key}' set to '{value}' successfully.[/]" if args.set else f"[bold red]Failed to set key '{key}'.[/]"
 
 if args.read:
