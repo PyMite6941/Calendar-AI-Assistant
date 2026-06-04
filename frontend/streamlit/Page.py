@@ -1,3 +1,4 @@
+# Modules for functionality
 import shutil
 import streamlit as st
 from streamlit_calendar import calendar
@@ -119,4 +120,9 @@ with st.sidebar:
     st.title("Talk to your Calendar AI Assistant")
     with st.form("ai_form"):
         user_input = st.text_input("Ask me anything about your calendar:")
-        submit_button = st.form_submit_button("Submit")
+        if st.form_submit_button("Submit"):
+            if user_input:
+                st.session_state["chat_history"].append(f"You: {user_input}")
+                response = subprocess.run(["python", "backend/tools/connect_to_ai.py", "--ask", user_input, "--model", get_config("api_provider", "openai")], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+                ai_response = response.stdout.strip()
+                st.session_state["chat_history"].append(f"AI: {ai_response}")
