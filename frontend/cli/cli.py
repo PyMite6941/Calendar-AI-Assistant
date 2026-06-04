@@ -1,4 +1,5 @@
 import json
+import subprocess
 import sys
 import tomllib
 import tomli_w
@@ -12,12 +13,12 @@ from rich.table import Table
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.auth.add_google_oauth import cli_connect, cli_disconnect, is_connected
+from backend.auth.add_google_oauth import cli_connect, cli_disconnect, cli_is_connected
 
 console = Console()
 
 CALENDAR_PATH = PROJECT_ROOT / "backend/storage/calendar_events.json"
-TODOS_PATH    = PROJECT_ROOT / "backend/storage/todos.txt"
+TODOS_PATH    = PROJECT_ROOT / "backend/storage/todos.json"
 CONFIGS_PATH  = PROJECT_ROOT / "backend/storage/configs.toml"
 SECRETS_PATH  = PROJECT_ROOT / "backend/storage/secrets.toml"
 
@@ -79,13 +80,13 @@ def calendar_menu():
 
 def get_todos():
     try:
-        return [l.strip() for l in TODOS_PATH.read_text().splitlines() if l.strip()]
-    except FileNotFoundError:
+        return json.loads(TODOS_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
         return []
 
 def save_todos(todos):
     TODOS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TODOS_PATH.write_text("\n".join(todos) + ("\n" if todos else ""))
+    TODOS_PATH.write_text(json.dumps(todos, indent=2))
 
 def todo_menu():
     while True:
@@ -98,14 +99,17 @@ def todo_menu():
             if not todos:
                 console.print("[yellow]No todos found.[/]")
             else:
-                for i, t in enumerate(todos):
-                    console.print(f"[cyan]{i}[/] {t}")
+                t = Table(title="Todo List", show_lines=True)
+                t.add_column("#"); t.add_column("Title"); t.add_column("Description")
+                for i, todo in enumerate(todos):
+                    t.add_row(str(i), todo.get("title", ""), todo.get("description", ""))
+                console.print(t)
 
         elif choice == "Add todo":
             title = questionary.text("Title:").ask()
             desc  = questionary.text("Description:").ask()
             todos = get_todos()
-            todos.append(f"{title}: {desc}")
+            todos.append({"title": title, "description": desc})
             save_todos(todos)
             console.print("[green]Todo added.[/]")
 
@@ -116,7 +120,7 @@ def todo_menu():
                 continue
             pick = questionary.select(
                 "Select todo to delete:",
-                choices=[f"{i}: {t}" for i, t in enumerate(todos)] + ["Cancel"],
+                choices=[f"{i}: {t.get('title', '')}" for i, t in enumerate(todos)] + ["Cancel"],
             ).ask()
             if pick != "Cancel":
                 todos.pop(int(pick.split(":")[0]))
@@ -172,9 +176,10 @@ def settings_menu():
         ).ask()
 
         if choice == "View settings":
+            provider = get_secret("apis", "api_provider", "ollama")
             console.print(Panel(
                 f"Calendar view: {get_config('calendar_view', 'dayGridMonth')}\n"
-                f"API provider:  {get_secret('apis', 'api', '')}\n"
+                f"API provider:  {provider}\n"
                 f"API key:       {'set' if get_secret('apis', 'api_key') else 'not set'}",
                 title="Settings",
             ))
@@ -187,11 +192,15 @@ def settings_menu():
             console.print("[green]Saved.[/]")
 
         elif choice == "Set API provider":
-            set_secret("apis", "api", questionary.text("API provider:").ask())
+            provider = questionary.select(
+                "Provider:", choices=["ollama", "groq", "gemini", "mistral"]
+            ).ask()
+            set_secret("apis", "api_provider", provider)
             console.print("[green]Saved.[/]")
 
         elif choice == "Set API key":
-            set_secret("apis", "api_key", questionary.password("API key:").ask())
+            key = questionary.password("API key:").ask()
+            set_secret("apis", "api_key", key)
             console.print("[green]Saved.[/]")
         else:
             break
@@ -201,17 +210,26 @@ def settings_menu():
 
 def chat_menu():
     console.print(Panel("Type your message. Type [bold]exit[/bold] to go back.", title="AI Chat"))
+    history = []
     while True:
         user_input = questionary.text("You:").ask()
         if not user_input or user_input.lower() == "exit":
             break
-        console.print(f"[dim]Assistant: (agents not yet configured)[/]")
+
+        history.append(f"You: {user_input}")
+        result = subprocess.run(
+            ["python", "backend/tools/connect_to_ai.py", "--ask", user_input],
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+        )
+        response = result.stdout.strip() or result.stderr.strip() or "No response."
+        history.append(f"AI: {response}")
+        console.print(f"[bold cyan]AI:[/] {response}")
 
 
 # ── google account ────────────────────────────────────────────────────────────
 
 def google_menu():
-    connected = is_connected()
+    connected = cli_is_connected()
     console.print(f"Google account: {'[green]Connected[/]' if connected else '[red]Not connected[/]'}")
 
     if connected:
@@ -238,7 +256,7 @@ def main():
     ))
 
     while True:
-        connected = is_connected()
+        connected = cli_is_connected()
         google_label = "Google Account [green](connected)[/]" if connected else "Google Account [red](not connected)[/]"
 
         choice = questionary.select(

@@ -1,4 +1,5 @@
 # Modules for functionality
+import json
 import shutil
 import streamlit as st
 from streamlit_calendar import calendar
@@ -16,16 +17,21 @@ def get_calendar_events():
     return result.stdout
 
 def get_config(key, default=None):
-    result = subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
     return result.stdout.strip()
 
 def set_config(key, value, path="backend/storage/configs.toml"):
-    subprocess.run(["python", "backend/tools/access_configs.py", "--key", key, "--set", str(value), "--path", path], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--set", str(value), "--path", path], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+
+def get_todo_list():
+    result = subprocess.run(["python", "backend/tools/todo_list.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    return result.stdout
 
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
     st.session_state["calendar"] = get_calendar_events()
     st.session_state["calendar_view"] = get_config("calendar_view", "dayGridMonth")
+    st.session_state["todo_list"] = get_todo_list()
     st.session_state["chat_history"] = []
 
 def description_page():
@@ -67,12 +73,15 @@ def settings_page():
         ),
     )
     notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
-    api_provider = st.text_input("API Provider", value="OpenAI")
+    api_provider = st.selectbox("API Provider", options=["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"], index=["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"].index(get_config("api_provider", "OpenAI")))
+    ai_model = st.text_input("AI Model", value=get_config(f"{api_provider.lower()}_model", f"{api_provider}-3.5-turbo"))
     api_key = st.text_input("API Key", type="password")
 
     if st.button("Save Preferences"):
         if api_provider:
             set_config("api_provider", api_provider, "backend/storage/secrets.toml")
+        if ai_model:
+            set_config(f"{api_provider}_model", ai_model, "backend/storage/secrets.toml")
         if api_key:
             set_config("api_key", api_key, "backend/storage/secrets.toml")
         st.session_state["calendar_view"] = calendar_view
@@ -96,14 +105,44 @@ def settings_page():
 def todo_page():
     st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Todo List")
-    st.subheader("Your Tasks")
-    st.text_input("Add a new task", key="new_task")
-    if st.button("Add Task"):
-        new_task = st.session_state["new_task"]
-        if new_task:
-            subprocess.run(["python", "backend/tools/todo_stuff.py", "--add", new_task, ""], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-            st.session_state["chat_history"].append(f"Task added: {new_task}")
-            st.success(f"Task '{new_task}' added to your todo list!")
+
+    result = subprocess.run(["python", "backend/tools/todo_stuff.py", "--get"],
+        capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    todos = json.loads(result.stdout or "[]")
+
+    with st.form("add_todo_form", clear_on_submit=True):
+        col1, col2 = st.columns([2, 3])
+        title = col1.text_input("Title")
+        desc  = col2.text_input("Description")
+        if st.form_submit_button("Add Task") and title:
+            subprocess.run(["python", "backend/tools/todo_stuff.py", "--add", title, desc],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+            st.rerun()
+
+    st.divider()
+
+    if not todos:
+        st.info("No tasks yet. Add one above.")
+    else:
+        for i, todo in enumerate(todos):
+            col1, col2, col3 = st.columns([3, 5, 1])
+            col1.markdown(f"**{todo.get('title', '')}**")
+            col2.caption(todo.get("description", ""))
+            if col3.button("✕", key=f"del_{i}"):
+                subprocess.run(["python", "backend/tools/todo_stuff.py", "--delete", str(i)],
+                    capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+                st.rerun()
+    st.session_state["todo_list"] = get_todo_list()
+    todos = st.session_state["todo_list"]
+    if todos:
+        for idx, todo in enumerate(todos):
+            st.markdown(f"**{idx+1}. {todo['title']}**: {todo['description']}")
+            if st.button(f"Delete Task {idx+1}", key=f"delete_{idx}"):
+                subprocess.run(["python", "backend/tools/todo_stuff.py", "--delete", str(idx)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+                st.session_state["todo_list"] = get_todo_list()
+                st.experimental_rerun()
+    else:
+        st.info("Your todo list is empty. Add some tasks to get started!")
 
 pages = [
     st.Page(description_page, title="Description", icon=":material/description:"),

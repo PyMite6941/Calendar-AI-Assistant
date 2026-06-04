@@ -1,4 +1,5 @@
 from crewai import Agent
+from crewai.tools import tool
 intent_analyzer = Agent(
   role="Intent Analyzer", 
   goal="Determine exactly what the user is requesting and extract relevant details.", 
@@ -44,3 +45,10 @@ planner_agent = Agent(
     ),
     verbose=True
 )
+
+@tool("use_toml_stuff")
+def use_toml_stuff(key: str, default: str = None):
+    """Access or modify configuration values in a TOML file."""
+    import subprocess
+    result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(__file__).parent.parent.parent)
+    return result.stdout.strip()

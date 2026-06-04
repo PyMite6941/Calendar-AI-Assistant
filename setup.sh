@@ -31,4 +31,5 @@ else
 fi
 echo "What is your name?"
 read $name
+echo "Setup complete! Activating run.py ..."
 python run.py
