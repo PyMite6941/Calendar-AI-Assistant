@@ -47,17 +47,16 @@ def calendar_menu():
                 console.print("[yellow]No events found.[/]")
             else:
                 t = Table(title="Calendar Events", show_lines=True)
-                t.add_column("Title"); t.add_column("Start"); t.add_column("End")
+                t.add_column("Title"); t.add_column("DateTime")
                 for e in events:
-                    t.add_row(e.get("title", ""), e.get("start", ""), e.get("end", ""))
+                    t.add_row(e.get("title", ""), e.get("datetime", ""))
                 console.print(t)
 
         elif choice == "Add event":
             title = questionary.text("Event title:").ask()
-            start = questionary.text("Start (YYYY-MM-DD or datetime):").ask()
-            end   = questionary.text("End (YYYY-MM-DD or datetime):").ask()
+            dt    = questionary.text("DateTime (YYYY-MM-DDTHH:MM:SS):").ask()
             events = get_events()
-            events.append({"title": title, "start": start, "end": end})
+            events.append({"title": title, "datetime": dt})
             save_events(events)
             console.print("[green]Event added.[/]")
 
@@ -168,19 +167,36 @@ def set_secret(section, key, value):
     with open(SECRETS_PATH, "wb") as f:
         tomli_w.dump(secrets, f)
 
+def set_secret_toplevel(key, value):
+    try:
+        with open(SECRETS_PATH, "rb") as f:
+            secrets = tomllib.load(f)
+    except FileNotFoundError:
+        secrets = {}
+    secrets[key] = value
+    SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(SECRETS_PATH, "wb") as f:
+        tomli_w.dump(secrets, f)
+
 def settings_menu():
     while True:
         choice = questionary.select(
             "Settings",
-            choices=["View settings", "Set calendar view", "Set API provider", "Set API key", "Back"],
+            choices=["View settings", "Set calendar view", "Set API provider", "Set AI model", "Set API key", "Back"],
         ).ask()
 
         if choice == "View settings":
-            provider = get_secret("apis", "api_provider", "ollama")
+            try:
+                with open(SECRETS_PATH, "rb") as f:
+                    s = tomllib.load(f)
+            except FileNotFoundError:
+                s = {}
+            provider = s.get("api_provider") or s.get("apis", {}).get("api_provider", "ollama")
             console.print(Panel(
                 f"Calendar view: {get_config('calendar_view', 'dayGridMonth')}\n"
                 f"API provider:  {provider}\n"
-                f"API key:       {'set' if get_secret('apis', 'api_key') else 'not set'}",
+                f"AI model:      {s.get(f'{provider}_model', 'default')}\n"
+                f"API key:       {'set' if s.get('api_key') or s.get('apis', {}).get('api_key') else 'not set'}",
                 title="Settings",
             ))
 
@@ -193,14 +209,25 @@ def settings_menu():
 
         elif choice == "Set API provider":
             provider = questionary.select(
-                "Provider:", choices=["ollama", "groq", "gemini", "mistral"]
+                "Provider:", choices=["Ollama", "Groq", "Gemini", "Mistral"]
             ).ask()
-            set_secret("apis", "api_provider", provider)
+            set_secret_toplevel("api_provider", provider)
+            console.print("[green]Saved.[/]")
+
+        elif choice == "Set AI model":
+            try:
+                with open(SECRETS_PATH, "rb") as f:
+                    s = tomllib.load(f)
+            except FileNotFoundError:
+                s = {}
+            provider = s.get("api_provider", "ollama").lower()
+            model = questionary.text(f"Model name for {provider}:", default=s.get(f"{provider}_model", "")).ask()
+            set_secret_toplevel(f"{provider}_model", model)
             console.print("[green]Saved.[/]")
 
         elif choice == "Set API key":
             key = questionary.password("API key:").ask()
-            set_secret("apis", "api_key", key)
+            set_secret_toplevel("api_key", key)
             console.print("[green]Saved.[/]")
         else:
             break

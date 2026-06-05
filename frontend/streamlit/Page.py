@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.auth.add_google_oauth import connect_button
+from backend.auth.add_google_oauth import connect_button, get_creds
 
 def get_calendar_events():
     result = subprocess.run(["python", "backend/tools/calendar_events.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
@@ -28,6 +28,9 @@ def get_todo_list():
     return result.stdout
 
 st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
+
+# Handle Google OAuth callback on every page load
+get_creds()
 
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
@@ -68,7 +71,7 @@ def settings_page():
         "Preferred Calendar View",
         options=["dayGridMonth", "timeGridWeek", "timeGridDay"],
         index=["dayGridMonth", "timeGridWeek", "timeGridDay"].index(
-            st.session_state.get("calendar_view", "dayGridMonth")
+            st.session_state.get("calendar_view") or "dayGridMonth"
         ),
     )
     notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
