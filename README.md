@@ -2,6 +2,15 @@ Hello! Our team consists of Matt (PyMite6941) and Mackenzie (SeaMeetsSky38Times)
 
 ## Setup
 
+To setup this project best, run the setup.sh file and the file will take over the process, just answer the questions if prompted.
+
+For MacOS and Linux run these commands:
+´sudo chmod +x setup.sh´
+´./setup.sh´
+
+For Windows run this command:
+´bash setup.sh´
+
 ## Features
 
 ## Inspiration
