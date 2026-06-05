@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from crewai import Agent
 from crewai.tools import tool
 intent_analyzer = Agent(
@@ -51,5 +53,5 @@ planner_agent = Agent(
 def use_toml_stuff(key: str, default: str = None):
     """Access or modify configuration values in a TOML file."""
     import subprocess
-    result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(__file__).parent.parent.parent)
+    result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[2]))
     return result.stdout.strip()

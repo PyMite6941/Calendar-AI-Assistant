@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import questionary
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 
@@ -14,6 +16,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.auth.add_google_oauth import cli_connect, cli_disconnect, cli_is_connected
+
+PROVIDERS = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
 
 console = Console()
 
@@ -149,6 +153,24 @@ def set_config(key, value):
     with open(CONFIGS_PATH, "wb") as f:
         tomli_w.dump(configs, f)
 
+def get_secret_top(key, default=None):
+    try:
+        with open(SECRETS_PATH, "rb") as f:
+            return tomllib.load(f).get(key, default)
+    except FileNotFoundError:
+        return default
+
+def set_secret_top(key, value):
+    try:
+        with open(SECRETS_PATH, "rb") as f:
+            secrets = tomllib.load(f)
+    except FileNotFoundError:
+        secrets = {}
+    secrets[key] = value
+    SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(SECRETS_PATH, "wb") as f:
+        tomli_w.dump(secrets, f)
+
 def get_secret(section, key, default=None):
     try:
         with open(SECRETS_PATH, "rb") as f:
@@ -182,21 +204,28 @@ def settings_menu():
     while True:
         choice = questionary.select(
             "Settings",
-            choices=["View settings", "Set calendar view", "Set API provider", "Set AI model", "Set API key", "Back"],
+            choices=[
+                "View settings",
+                "Set calendar view",
+                "Set notification preferences",
+                "Set API provider",
+                "Set AI model",
+                "Set API key",
+                "Google account",
+                "Clear cache",
+                "Back",
+            ],
         ).ask()
 
         if choice == "View settings":
-            try:
-                with open(SECRETS_PATH, "rb") as f:
-                    s = tomllib.load(f)
-            except FileNotFoundError:
-                s = {}
-            provider = s.get("api_provider") or s.get("apis", {}).get("api_provider", "ollama")
+            provider = get_secret_top("api_provider", "Ollama")
+            model = get_secret_top(f"{str(provider).lower()}_model", "not set")
             console.print(Panel(
-                f"Calendar view: {get_config('calendar_view', 'dayGridMonth')}\n"
-                f"API provider:  {provider}\n"
-                f"AI model:      {s.get(f'{provider}_model', 'default')}\n"
-                f"API key:       {'set' if s.get('api_key') or s.get('apis', {}).get('api_key') else 'not set'}",
+                f"Calendar view:           {get_config('calendar_view', 'dayGridMonth')}\n"
+                f"Notification preferences: {get_config('notification_preferences', 'Email, SMS')}\n"
+                f"API provider:            {provider}\n"
+                f"AI model:                {model}\n"
+                f"API key:                 {'set' if get_secret_top('api_key') else 'not set'}",
                 title="Settings",
             ))
 
@@ -207,28 +236,46 @@ def settings_menu():
             set_config("calendar_view", view)
             console.print("[green]Saved.[/]")
 
-        elif choice == "Set API provider":
-            provider = questionary.select(
-                "Provider:", choices=["Ollama", "Groq", "Gemini", "Mistral"]
+        elif choice == "Set notification preferences":
+            prefs = questionary.text(
+                "Notification preferences:", default=get_config("notification_preferences", "Email, SMS")
             ).ask()
-            set_secret_toplevel("api_provider", provider)
-            console.print("[green]Saved.[/]")
+            if prefs is not None:
+                set_config("notification_preferences", prefs)
+                console.print("[green]Saved.[/]")
+
+        elif choice == "Set API provider":
+            provider = questionary.select("Provider:", choices=PROVIDERS).ask()
+            if provider:
+                set_secret_top("api_provider", provider)
+                console.print("[green]Saved.[/]")
 
         elif choice == "Set AI model":
-            try:
-                with open(SECRETS_PATH, "rb") as f:
-                    s = tomllib.load(f)
-            except FileNotFoundError:
-                s = {}
-            provider = s.get("api_provider", "ollama").lower()
-            model = questionary.text(f"Model name for {provider}:", default=s.get(f"{provider}_model", "")).ask()
-            set_secret_toplevel(f"{provider}_model", model)
-            console.print("[green]Saved.[/]")
+            provider = get_secret_top("api_provider", "Ollama")
+            model = questionary.text(
+                f"AI model for {provider}:",
+                default=str(get_secret_top(f"{str(provider).lower()}_model", "")),
+            ).ask()
+            if model:
+                set_secret_top(f"{str(provider).lower()}_model", model)
+                console.print("[green]Saved.[/]")
 
         elif choice == "Set API key":
             key = questionary.password("API key:").ask()
-            set_secret_toplevel("api_key", key)
-            console.print("[green]Saved.[/]")
+            if key:
+                set_secret_top("api_key", key)
+                console.print("[green]Saved.[/]")
+
+        elif choice == "Google account":
+            google_menu()
+
+        elif choice == "Clear cache":
+            removed = 0
+            for cache_dir in PROJECT_ROOT.rglob("__pycache__"):
+                if cache_dir.exists():
+                    shutil.rmtree(cache_dir)
+                    removed += 1
+            console.print(f"[green]Cache cleared — {removed} folder(s) removed.[/]")
         else:
             break
 
@@ -244,8 +291,9 @@ def chat_menu():
             break
 
         history.append(f"You: {user_input}")
+        provider = str(get_secret_top("api_provider", "ollama")).lower()
         result = subprocess.run(
-            ["python", "backend/tools/connect_to_ai.py", "--ask", user_input],
+            ["python", "backend/tools/connect_to_ai.py", "--ask", user_input, "--provider", provider],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
         response = result.stdout.strip() or result.stderr.strip() or "No response."
@@ -272,6 +320,76 @@ def google_menu():
             console.print("[green]Connected successfully.[/]" if creds else "[red]Connection failed.[/]")
 
 
+# ── description ─────────────────────────────────────────────────────────────────
+
+def description_menu():
+    readme = PROJECT_ROOT / "README.md"
+    if readme.exists():
+        console.print(Panel(Markdown(readme.read_text()), title="Description", border_style="blue"))
+    else:
+        console.print("[yellow]No description yet.[/]")
+
+
+# ── portfolio ───────────────────────────────────────────────────────────────────
+
+def _google_call(*flags):
+    result = subprocess.run(
+        ["python", "backend/auth/add_google_oauth.py", *flags],
+        capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+    )
+    try:
+        return json.loads(result.stdout.strip() or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+def portfolio_menu():
+    console.print(Panel.fit(
+        "[bold]Calendar AI Assistant — Portfolio[/]\n"
+        "A smart, multi-interface calendar and productivity manager powered by AI agents.",
+        border_style="magenta",
+    ))
+
+    overview = Table(title="At a Glance", show_lines=True)
+    overview.add_column("Metric"); overview.add_column("Value")
+    overview.add_row("AI Providers", "5 — OpenAI · Groq · Gemini · Mistral · Ollama")
+    overview.add_row("Interfaces", "2 — Streamlit web UI + rich CLI")
+    overview.add_row("Agent Pipeline", "4 agents — Intent → Retrieve → Process → Verify")
+    console.print(overview)
+
+    console.print(Panel(
+        "[bold]Calendar Management[/] — add/view/delete events, month/week/day views, Google Calendar sync\n"
+        "[bold]AI Chat[/] — natural-language event & task creation, multi-provider, offline via Ollama\n"
+        "[bold]Todo List[/] — tasks with descriptions, persistent storage, AI-generated tasks\n"
+        "[bold]Google Integration[/] — Calendar read/write, Gmail read-only, secure token storage",
+        title="Features",
+    ))
+
+    console.print(Panel(
+        "Frontend:   Streamlit 1.57 · streamlit-calendar · Rich (CLI)\n"
+        "AI/Agents:  CrewAI 1.14 · OpenAI SDK · multi-provider routing\n"
+        "Auth/APIs:  google-auth-oauthlib · googleapiclient · TOML config",
+        title="Tech Stack",
+    ))
+
+    status = _google_call("--status")
+    if status.get("connected"):
+        console.print(f"Google: [green]Connected[/] as [bold]{status.get('email', 'unknown')}[/] ({status.get('name', '')})")
+        if questionary.confirm("Load upcoming Google Calendar events?", default=False).ask():
+            events = _google_call("--list-events", "--max", "10")
+            if isinstance(events, list) and events:
+                t = Table(title="Upcoming Google Events", show_lines=True)
+                t.add_column("Title"); t.add_column("Start"); t.add_column("Location")
+                for ev in events:
+                    t.add_row(ev.get("title", ""), ev.get("start", ""), ev.get("location", ""))
+                console.print(t)
+            elif isinstance(events, dict) and events.get("error"):
+                console.print(f"[red]{events['error']}[/]")
+            else:
+                console.print("[yellow]No upcoming events.[/]")
+    else:
+        console.print("Google: [red]Not connected[/] — connect via the Google Account menu to see live data.")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -288,10 +406,21 @@ def main():
 
         choice = questionary.select(
             "Main Menu",
-            choices=["Calendar", "Todo List", "Settings", "Chat", google_label, "Exit"],
+            choices=[
+                "Description",
+                "Portfolio",
+                "Calendar",
+                "Todo List",
+                "Settings",
+                "Chat",
+                google_label,
+                "Exit",
+            ],
         ).ask()
 
-        if choice == "Calendar":            calendar_menu()
+        if choice == "Description":         description_menu()
+        elif choice == "Portfolio":         portfolio_menu()
+        elif choice == "Calendar":          calendar_menu()
         elif choice == "Todo List":         todo_menu()
         elif choice == "Settings":          settings_menu()
         elif choice == "Chat":              chat_menu()

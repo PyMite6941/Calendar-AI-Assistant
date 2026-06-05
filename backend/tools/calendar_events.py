@@ -8,7 +8,7 @@ _DEFAULT_PATH = _ROOT / "backend/storage/calendar_events.json"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--get", action="store_true", help="Gets calendar events")
-parser.add_argument("--add", nargs=2, metavar=("TITLE", "DATETIME"), help="Adds a calendar event")
+parser.add_argument("--add", nargs="+", metavar="ARG", help="Adds a calendar event: TITLE START [END]")
 parser.add_argument("--save", metavar="EVENTS", help="Saves calendar events JSON string")
 parser.add_argument("--path", default=str(_DEFAULT_PATH), help="Path to the calendar events file")
 args = parser.parse_args()
@@ -34,7 +34,9 @@ if args.save:
     save_calendar_events(json.loads(args.save))
 
 if args.add:
-    title, datetime_str = args.add
+    title = args.add[0]
+    start = args.add[1] if len(args.add) > 1 else ""
+    end   = args.add[2] if len(args.add) > 2 else start
     events = get_calendar_events()
-    events.append({"title": title, "datetime": datetime_str})
+    events.append({"title": title, "start": start, "end": end})
     save_calendar_events(events)

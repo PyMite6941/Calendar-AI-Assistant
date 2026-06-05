@@ -56,7 +56,7 @@ if not api_key and provider != "ollama":
 
 SYSTEM_PROMPT = """You are a Calendar and Todo AI Assistant.
 When the user wants to add a todo, respond with exactly: {"action": "add_todo", "title": "...", "description": "..."}
-When the user wants to add a calendar event, respond with exactly: {"action": "add_event", "title": "...", "datetime": "YYYY-MM-DDTHH:MM:SS"}
+When the user wants to add a calendar event, respond with exactly: {"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS"}
 For all other messages, respond with exactly: {"action": "chat", "message": "..."}
 Always respond with valid JSON only. No extra text."""
 
@@ -80,8 +80,10 @@ try:
             )
             print(f"Done — added todo: {data.get('title', '')}")
         elif action == "add_event":
+            start = data.get("start", "")
+            end   = data.get("end", start)
             subprocess.run(
-                ["python", "backend/tools/calendar_events.py", "--add", data.get("title", ""), data.get("datetime", "")],
+                ["python", "backend/tools/calendar_events.py", "--add", data.get("title", ""), start, end],
                 cwd=str(_ROOT), capture_output=True,
             )
             print(f"Done — added event: {data.get('title', '')}")

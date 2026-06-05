@@ -189,3 +189,95 @@ def cli_connect():
 def cli_disconnect():
     if TOKEN_PATH.exists():
         TOKEN_PATH.unlink()
+
+
+# ── Subprocess CLI ────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    import sys
+    from googleapiclient.discovery import build
+
+    _parser = argparse.ArgumentParser(description="Google API access tool")
+    _parser.add_argument("--status", action="store_true", help="Check Google connection status")
+    _parser.add_argument("--list-events", action="store_true", help="List upcoming Google Calendar events")
+    _parser.add_argument("--list-messages", action="store_true", help="List recent Gmail messages")
+    _parser.add_argument("--max", type=int, default=10, help="Max results to return")
+    _args = _parser.parse_args()
+
+    _creds = _load_token()
+    if _creds and _creds.expired and _creds.refresh_token:
+        try:
+            _creds.refresh(Request())
+            _save_token(_creds)
+        except Exception:
+            _creds = None
+
+    if _args.status:
+        if _creds:
+            try:
+                _svc = build("oauth2", "v2", credentials=_creds)
+                _info = _svc.userinfo().get().execute()
+                print(json.dumps({"connected": True, "email": _info.get("email", ""), "name": _info.get("name", "")}))
+            except Exception:
+                print(json.dumps({"connected": True, "email": "", "name": ""}))
+        else:
+            print(json.dumps({"connected": False}))
+        sys.exit(0)
+
+    if not _creds or _creds.expired:
+        print(json.dumps({"error": "Not connected to Google. Use Settings to connect your account."}))
+        sys.exit(1)
+
+    if _args.list_events:
+        try:
+            from datetime import datetime, timezone
+            _svc = build("calendar", "v3", credentials=_creds)
+            _now = datetime.now(timezone.utc).isoformat()
+            _result = _svc.events().list(
+                calendarId="primary",
+                timeMin=_now,
+                maxResults=_args.max,
+                singleEvents=True,
+                orderBy="startTime",
+            ).execute()
+            _events = [
+                {
+                    "title":    e.get("summary", "(no title)"),
+                    "start":    e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", ""),
+                    "end":      e.get("end",   {}).get("dateTime") or e.get("end",   {}).get("date", ""),
+                    "location": e.get("location", ""),
+                }
+                for e in _result.get("items", [])
+            ]
+            print(json.dumps(_events))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}))
+        sys.exit(0)
+
+    if _args.list_messages:
+        try:
+            _svc = build("gmail", "v1", credentials=_creds)
+            _result = _svc.users().messages().list(
+                userId="me", maxResults=_args.max, labelIds=["INBOX"]
+            ).execute()
+            _messages = []
+            for _m in _result.get("messages", []):
+                _msg = _svc.users().messages().get(
+                    userId="me", id=_m["id"], format="metadata",
+                    metadataHeaders=["Subject", "From", "Date"],
+                ).execute()
+                _hdrs = {h["name"]: h["value"] for h in _msg.get("payload", {}).get("headers", [])}
+                _messages.append({
+                    "subject": _hdrs.get("Subject", "(no subject)"),
+                    "from":    _hdrs.get("From", ""),
+                    "date":    _hdrs.get("Date", ""),
+                    "snippet": _msg.get("snippet", ""),
+                })
+            print(json.dumps(_messages))
+        except Exception as _e:
+            print(json.dumps({"error": str(_e)}))
+        sys.exit(0)
+
+    _parser.print_help()
