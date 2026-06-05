@@ -1,7 +1,10 @@
 import argparse
+import json
+import subprocess
 import tomllib
 from pathlib import Path
 
+import urllib.request
 from openai import OpenAI
 from rich.console import Console
 
@@ -16,32 +19,76 @@ _ROOT = Path(__file__).resolve().parents[2]
 with open(_ROOT / "backend/storage/secrets.toml", "rb") as f:
     secrets = tomllib.load(f)
 
+def _get_ollama_default():
+    try:
+        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as r:
+            models = json.loads(r.read()).get("models", [])
+            if models:
+                return models[0]["name"]
+    except Exception:
+        pass
+    return "llama3.2"
+
+apis = secrets.get("apis", {})
+
 PROVIDERS = {
-    "groq":    ("https://api.groq.com/openai/v1", secrets["apis"].get("groq_api", ""), "llama-3.1-8b-instant"),
-    "gemini":  ("https://generativelanguage.googleapis.com/v1beta/openai/", secrets["apis"].get("gemini_api", ""), "gemini-2.0-flash"),
-    "mistral": ("https://api.mistral.ai/v1", secrets["apis"].get("mistral_api", ""), "mistral-small-latest"),
-    "ollama":  ("http://localhost:11434/v1", "ollama", "mistral"),
+    "groq":    ("https://api.groq.com/openai/v1", apis.get("groq_api", ""), "llama-3.1-8b-instant"),
+    "gemini":  ("https://generativelanguage.googleapis.com/v1beta/openai/", apis.get("gemini_api", ""), "gemini-2.0-flash"),
+    "mistral": ("https://api.mistral.ai/v1", apis.get("mistral_api", ""), "mistral-small-latest"),
+    "ollama":  ("http://localhost:11434/v1", "ollama", _get_ollama_default()),
 }
 
-provider = (args.provider or secrets["apis"].get("api_provider", "ollama")).lower()
+provider = (args.provider or secrets.get("api_provider") or apis.get("api_provider", "ollama")).lower()
 
 if provider not in PROVIDERS:
     console.print(f"[bold red]Unknown provider '{provider}'. Choose from: {', '.join(PROVIDERS)}[/]")
     exit(1)
 
 base_url, api_key, model = PROVIDERS[provider]
+# use model from settings if saved, fall back to provider default
+model = secrets.get(f"{provider}_model") or model
+# use generic api_key from settings if provider-specific key is missing
+api_key = api_key or secrets.get("api_key", "")
 
 if not api_key and provider != "ollama":
     console.print(f"[bold red]No API key set for '{provider}' in secrets.toml.[/]")
     exit(1)
 
+SYSTEM_PROMPT = """You are a Calendar and Todo AI Assistant.
+When the user wants to add a todo, respond with exactly: {"action": "add_todo", "title": "...", "description": "..."}
+When the user wants to add a calendar event, respond with exactly: {"action": "add_event", "title": "...", "datetime": "YYYY-MM-DDTHH:MM:SS"}
+For all other messages, respond with exactly: {"action": "chat", "message": "..."}
+Always respond with valid JSON only. No extra text."""
+
 try:
     client = OpenAI(base_url=base_url, api_key=api_key)
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": args.ask}],
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": args.ask},
+        ],
     )
-    print(response.choices[0].message.content)
+    raw = response.choices[0].message.content.strip()
+    try:
+        data = json.loads(raw)
+        action = data.get("action", "chat")
+        if action == "add_todo":
+            subprocess.run(
+                ["python", "backend/tools/todo_stuff.py", "--add", data.get("title", ""), data.get("description", "")],
+                cwd=str(_ROOT), capture_output=True,
+            )
+            print(f"Done — added todo: {data.get('title', '')}")
+        elif action == "add_event":
+            subprocess.run(
+                ["python", "backend/tools/calendar_events.py", "--add", data.get("title", ""), data.get("datetime", "")],
+                cwd=str(_ROOT), capture_output=True,
+            )
+            print(f"Done — added event: {data.get('title', '')}")
+        else:
+            print(data.get("message", raw))
+    except json.JSONDecodeError:
+        print(raw)
 except Exception as e:
     console.print(f"[bold red]Error: {e}[/]")
     exit(1)

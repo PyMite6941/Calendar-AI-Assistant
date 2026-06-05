@@ -10,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.auth.add_google_oauth import connect_button, get_creds, disconnect
+from backend.auth.add_google_oauth import connect_button
 
 def get_calendar_events():
     result = subprocess.run(["python", "backend/tools/calendar_events.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
@@ -27,6 +27,8 @@ def get_todo_list():
     result = subprocess.run(["python", "backend/tools/todo_list.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
     return result.stdout
 
+st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
+
 if not st.session_state.get("initialized", False):
     st.session_state["initialized"] = True
     st.session_state["calendar"] = get_calendar_events()
@@ -35,13 +37,11 @@ if not st.session_state.get("initialized", False):
     st.session_state["chat_history"] = []
 
 def description_page():
-    st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Description of this project")
     readme = PROJECT_ROOT / "README.md"
     st.markdown(readme.read_text() if readme.exists() else "_No description yet._")
 
 def calendar_page():
-    st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Your Calendar, AI Managed")
 
     calendar_options = {
@@ -61,7 +61,6 @@ def calendar_page():
     )
 
 def settings_page():
-    st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Settings")
     st.subheader("User Preferences")
 
@@ -73,7 +72,10 @@ def settings_page():
         ),
     )
     notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
-    api_provider = st.selectbox("API Provider", options=["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"], index=["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"].index(get_config("api_provider", "OpenAI")))
+    _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
+    _saved_provider = get_config("api_provider", "OpenAI")
+    _provider_index = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
+    api_provider = st.selectbox("API Provider", options=_provider_options, index=_provider_index)
     ai_model = st.text_input("AI Model", value=get_config(f"{api_provider.lower()}_model", f"{api_provider}-3.5-turbo"))
     api_key = st.text_input("API Key", type="password")
 
@@ -103,7 +105,6 @@ def settings_page():
         st.success(f"Cache cleared — {removed} folder(s) removed.")
 
 def todo_page():
-    st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
     st.title("Todo List")
 
     result = subprocess.run(["python", "backend/tools/todo_stuff.py", "--get"],
@@ -132,17 +133,6 @@ def todo_page():
                 subprocess.run(["python", "backend/tools/todo_stuff.py", "--delete", str(i)],
                     capture_output=True, text=True, cwd=str(PROJECT_ROOT))
                 st.rerun()
-    st.session_state["todo_list"] = get_todo_list()
-    todos = st.session_state["todo_list"]
-    if todos:
-        for idx, todo in enumerate(todos):
-            st.markdown(f"**{idx+1}. {todo['title']}**: {todo['description']}")
-            if st.button(f"Delete Task {idx+1}", key=f"delete_{idx}"):
-                subprocess.run(["python", "backend/tools/todo_stuff.py", "--delete", str(idx)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-                st.session_state["todo_list"] = get_todo_list()
-                st.experimental_rerun()
-    else:
-        st.info("Your todo list is empty. Add some tasks to get started!")
 
 pages = [
     st.Page(description_page, title="Description", icon=":material/description:"),
@@ -155,13 +145,28 @@ current_page = st.navigation(pages, position="top")
 current_page.run()
 
 with st.sidebar:
-    st.write(st.session_state["chat_history"] if st.session_state["chat_history"] else "")
-    st.title("Talk to your Calendar AI Assistant")
-    with st.form("ai_form"):
-        user_input = st.text_input("Ask me anything about your calendar:")
-        if st.form_submit_button("Submit"):
-            if user_input:
-                st.session_state["chat_history"].append(f"You: {user_input}")
-                response = subprocess.run(["python", "backend/tools/connect_to_ai.py", "--ask", user_input, "--model", get_config("api_provider", "openai")], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    st.title("Calendar AI Assistant")
+
+    chat_container = st.container(height=400)
+    with chat_container:
+        if st.session_state["chat_history"]:
+            for msg in st.session_state["chat_history"]:
+                if msg.startswith("You:"):
+                    st.chat_message("user").write(msg[4:].strip())
+                else:
+                    st.chat_message("assistant").write(msg[4:].strip())
+        else:
+            st.caption("No messages yet.")
+
+    with st.form("ai_form", clear_on_submit=True):
+        user_input = st.text_area("Ask me anything about your calendar:", height=110, max_chars=1000)
+        if st.form_submit_button("Send"):
+            if user_input.strip():
+                st.session_state["chat_history"].append(f"You: {user_input.strip()}")
+                response = subprocess.run(
+                    ["python", "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", get_config("api_provider", "ollama")],
+                    capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                )
                 ai_response = response.stdout.strip()
                 st.session_state["chat_history"].append(f"AI: {ai_response}")
+                st.rerun()
