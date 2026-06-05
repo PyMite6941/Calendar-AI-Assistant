@@ -19,8 +19,11 @@ def get_calendar_events():
     except json.JSONDecodeError:
         return []
 
-def get_config(key, default=None):
-    result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+def get_config(key, default=None, path=None):
+    cmd = ["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)]
+    if path:
+        cmd += ["--path", path]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
     return result.stdout.strip()
 
 def set_config(key, value, path="backend/storage/configs.toml"):
@@ -77,19 +80,26 @@ def settings_page():
             st.session_state.get("calendar_view", "dayGridMonth")
         ),
     )
-    notification_preferences = st.text_input("Notification Preferences", value="Email, SMS")
+    notification_preferences = st.text_input(
+        "Notification Preferences",
+        value=get_config("notification_preferences", "Email, SMS"),
+    )
+    _SECRETS = "backend/storage/secrets.toml"
     _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
-    _saved_provider = get_config("api_provider", "OpenAI")
+    _saved_provider = get_config("api_provider", "OpenAI", _SECRETS)
     _provider_index = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
     api_provider = st.selectbox("API Provider", options=_provider_options, index=_provider_index)
-    ai_model = st.text_input("AI Model", value=get_config(f"{api_provider.lower()}_model", f"{api_provider}-3.5-turbo"))
+    ai_model = st.text_input(
+        "AI Model",
+        value=get_config(f"{api_provider.lower()}_model", f"{api_provider.lower()}-default", _SECRETS),
+    )
     api_key = st.text_input("API Key", type="password")
 
     if st.button("Save Preferences"):
         if api_provider:
             set_config("api_provider", api_provider, "backend/storage/secrets.toml")
         if ai_model:
-            set_config(f"{api_provider}_model", ai_model, "backend/storage/secrets.toml")
+            set_config(f"{api_provider.lower()}_model", ai_model, "backend/storage/secrets.toml")
         if api_key:
             set_config("api_key", api_key, "backend/storage/secrets.toml")
         st.session_state["calendar_view"] = calendar_view
