@@ -14,7 +14,10 @@ from backend.auth.add_google_oauth import connect_button
 
 def get_calendar_events():
     result = subprocess.run(["python", "backend/tools/calendar_events.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-    return result.stdout
+    try:
+        return json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
 
 def get_config(key, default=None):
     result = subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--default", str(default)], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
@@ -24,8 +27,11 @@ def set_config(key, value, path="backend/storage/configs.toml"):
     subprocess.run(["python", "backend/tools/config_editing.py", "--key", key, "--set", str(value), "--path", path], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
 
 def get_todo_list():
-    result = subprocess.run(["python", "backend/tools/todo_list.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-    return result.stdout
+    result = subprocess.run(["python", "backend/tools/todo_stuff.py", "--get"], capture_output=True, text=True, cwd=str(PROJECT_ROOT))
+    try:
+        return json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
 
 st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
 
