@@ -51,16 +51,17 @@ def calendar_menu():
                 console.print("[yellow]No events found.[/]")
             else:
                 t = Table(title="Calendar Events", show_lines=True)
-                t.add_column("Title"); t.add_column("DateTime")
+                t.add_column("Title"); t.add_column("Start"); t.add_column("End")
                 for e in events:
-                    t.add_row(e.get("title", ""), e.get("datetime", ""))
+                    t.add_row(e.get("title", ""), e.get("start", ""), e.get("end", ""))
                 console.print(t)
 
         elif choice == "Add event":
             title = questionary.text("Event title:").ask()
-            dt    = questionary.text("DateTime (YYYY-MM-DDTHH:MM:SS):").ask()
+            start = questionary.text("Start (YYYY-MM-DDTHH:MM:SS):").ask()
+            end   = questionary.text("End (YYYY-MM-DDTHH:MM:SS, or blank to match start):").ask() or start
             events = get_events()
-            events.append({"title": title, "datetime": dt})
+            events.append({"title": title, "start": start, "end": end})
             save_events(events)
             console.print("[green]Event added.[/]")
 

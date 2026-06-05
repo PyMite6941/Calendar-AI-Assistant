@@ -15,8 +15,13 @@ parser.add_argument("--provider", default=None, help="Override provider (groq, g
 args = parser.parse_args()
 
 _ROOT = Path(__file__).resolve().parents[2]
+_SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
 
-with open(_ROOT / "backend/storage/secrets.toml", "rb") as f:
+if not _SECRETS_PATH.exists():
+    _SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _SECRETS_PATH.write_text("[apis]\n")
+
+with open(_SECRETS_PATH, "rb") as f:
     secrets = tomllib.load(f)
 
 def _get_ollama_default():

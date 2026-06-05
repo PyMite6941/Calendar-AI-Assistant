@@ -32,6 +32,9 @@ def _d(enc: str) -> str:
 
 
 def _load_secrets():
+    if not SECRETS_PATH.exists():
+        SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SECRETS_PATH.write_text("[apis]\n")
     with open(SECRETS_PATH, "rb") as f:
         return tomllib.load(f)
 
