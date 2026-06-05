@@ -7,8 +7,12 @@ from .agents import (
 )
 analyze_request_task = Task(
   description="""
-  Analyze the user's request and determine the intent. 
-  Extract any dates, times, titles, reminders, 
+  Analyze the following user request:
+
+  {user_request}
+
+  Determine the intent.
+  Extract dates, times, titles, reminders, 
   and relevant scheduling information.
   """,
   expected_output="""

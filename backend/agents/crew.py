@@ -29,3 +29,10 @@ calendar_crew = Crew(
     ],
     verbose=True
 )
+
+def run_calendar_assistant(user_request):
+    return calendar_crew.kickoff(
+        inputs={
+            "user_request": user_request
+        }
+    )
