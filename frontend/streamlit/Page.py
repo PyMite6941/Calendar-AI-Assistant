@@ -111,15 +111,6 @@ def todo_page():
         capture_output=True, text=True, cwd=str(PROJECT_ROOT))
     todos = json.loads(result.stdout or "[]")
 
-    with st.form("add_todo_form", clear_on_submit=True):
-        col1, col2 = st.columns([2, 3])
-        title = col1.text_input("Title")
-        desc  = col2.text_input("Description")
-        if st.form_submit_button("Add Task") and title:
-            subprocess.run(["python", "backend/tools/todo_stuff.py", "--add", title, desc],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-            st.rerun()
-
     st.divider()
 
     if not todos:
