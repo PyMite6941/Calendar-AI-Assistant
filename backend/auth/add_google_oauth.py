@@ -1,5 +1,6 @@
 import os
 import pickle
+from pathlib import Path
 
 import streamlit as st
 import tomllib
@@ -15,8 +16,9 @@ SCOPES = [
 ]
 
 REDIRECT_URI = "http://localhost:8501"
-SECRETS_PATH = "backend/storage/secrets.toml"
-TOKEN_PATH = "backend/storage/token.pickle"
+_ROOT = Path(__file__).resolve().parents[2]
+SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
+TOKEN_PATH   = _ROOT / "backend/storage/token.pickle"
 
 
 def _load_secrets():
@@ -25,21 +27,21 @@ def _load_secrets():
 
 
 def _load_token():
-    if os.path.exists(TOKEN_PATH):
+    if TOKEN_PATH.exists():
         with open(TOKEN_PATH, "rb") as f:
             return pickle.load(f)
     return None
 
 
 def _save_token(creds):
-    os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
+    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(TOKEN_PATH, "wb") as f:
         pickle.dump(creds, f)
 
 
 def _make_flow():
     secrets = _load_secrets()
-    client_id = secrets.get("google", {}).get("client_id", "")
+    client_id     = secrets.get("google", {}).get("client_id", "")
     client_secret = secrets.get("google", {}).get("client_secret", "")
     client_config = {
         "web": {
@@ -53,6 +55,8 @@ def _make_flow():
     return Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
 
 
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+
 def get_creds():
     """Returns valid credentials if connected, otherwise None. Never blocks."""
     creds = st.session_state.get("google_creds") or _load_token()
@@ -65,7 +69,6 @@ def get_creds():
         except Exception:
             creds = None
 
-    # Handle OAuth callback after Google redirects back
     if not creds and "code" in st.query_params:
         try:
             flow = _make_flow()
@@ -89,12 +92,12 @@ def is_connected():
 
 
 def connect_button(label="Connect Google Account"):
-    """Renders a connect/disconnect button. Call from sidebar or settings."""
     secrets = _load_secrets()
-    client_id = secrets.get("google", {}).get("client_id", "")
+    client_id     = secrets.get("google", {}).get("client_id", "")
     client_secret = secrets.get("google", {}).get("client_secret", "")
 
-    if is_connected():
+    creds = get_creds()
+    if creds:
         st.success("Google account connected")
         if st.button("Disconnect", type="secondary"):
             disconnect()
@@ -108,9 +111,26 @@ def connect_button(label="Connect Google Account"):
 
 def disconnect():
     st.session_state.pop("google_creds", None)
-    if os.path.exists(TOKEN_PATH):
-        os.remove(TOKEN_PATH)
+    if TOKEN_PATH.exists():
+        TOKEN_PATH.unlink()
     st.rerun()
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
+def cli_is_connected():
+    """CLI-safe check — no Streamlit runtime needed."""
+    creds = _load_token()
+    if not creds:
+        return False
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            _save_token(creds)
+            return True
+        except Exception:
+            return False
+    return not creds.expired
 
 
 def cli_connect():
@@ -129,7 +149,7 @@ def cli_connect():
             pass
 
     secrets = _load_secrets()
-    client_id = secrets.get("google", {}).get("client_id", "")
+    client_id     = secrets.get("google", {}).get("client_id", "")
     client_secret = secrets.get("google", {}).get("client_secret", "")
 
     if not client_id or not client_secret:
@@ -151,5 +171,5 @@ def cli_connect():
 
 
 def cli_disconnect():
-    if os.path.exists(TOKEN_PATH):
-        os.remove(TOKEN_PATH)
+    if TOKEN_PATH.exists():
+        TOKEN_PATH.unlink()
