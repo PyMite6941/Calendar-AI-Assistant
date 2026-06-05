@@ -1,9 +1,17 @@
 import streamlit as st
 import os
 import sys
+from datetime import datetime as _datetime
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from CLI.app.streamlit_setup import init_st, sync_data
+
+_ocr_available = False
+try:
+    from backend.ocr import parse_receipt as _parse_receipt
+    _ocr_available = True
+except Exception:
+    pass
 
 init_st()
 
@@ -42,6 +50,36 @@ with tab_dashboard:
 with tab_add:
     choice = st.selectbox('What to add?', options=['Expenses', 'Income', 'Budget', 'Subscription', 'Goal'], key='add_choice')
     if choice == 'Expenses':
+        with st.expander('Scan a Receipt', expanded=False):
+            if not _ocr_available:
+                st.info("Receipt OCR requires Google Cloud Vision. Set the GOOGLE_APPLICATION_CREDENTIALS environment variable to enable.")
+            else:
+                receipt_img = st.file_uploader("Upload receipt image", type=["png", "jpg", "jpeg", "webp"], key="receipt_uploader")
+                if receipt_img and st.button("Scan Receipt", key="scan_receipt_btn"):
+                    with st.spinner("Scanning receipt..."):
+                        try:
+                            result = _parse_receipt(receipt_img.read())
+                            st.session_state['add_exp_purchased'] = result.get('merchant', '')
+                            st.session_state['add_exp_amount'] = float(result.get('total', 0.0))
+                            date_str = result.get('date', '')
+                            if date_str:
+                                for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%m-%d-%Y', '%m/%d/%y', '%d/%m/%Y'):
+                                    try:
+                                        st.session_state['add_exp_date'] = _datetime.strptime(date_str, fmt).date()
+                                        break
+                                    except ValueError:
+                                        continue
+                            st.session_state['_ocr_last'] = result
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"OCR failed: {e}")
+                if '_ocr_last' in st.session_state:
+                    r = st.session_state['_ocr_last']
+                    st.caption(f"Last scan: **{r.get('merchant', '')}** — {float(r.get('total', 0)):.2f} {r.get('currency', 'USD')} on {r.get('date', '')}")
+                    if st.button("Clear", key="clear_ocr_btn"):
+                        for k in ['_ocr_last', 'add_exp_purchased', 'add_exp_amount', 'add_exp_date']:
+                            st.session_state.pop(k, None)
+                        st.rerun()
         with st.expander('Recurring Expenses', expanded=False):
             if not st.session_state.recurring_expenses:
                 st.write("No recurring expenses found.")
@@ -67,12 +105,12 @@ with tab_add:
         with st.form('add_expenses_form'):
             col1, col2 = st.columns(2)
             with col1:
-                expense_purchased = st.text_input('What was purchased?')
+                expense_purchased = st.text_input('What was purchased?', key='add_exp_purchased')
             with col2:
-                expense_amount = st.number_input('Expense Amount', min_value=0.0, step=0.01)
+                expense_amount = st.number_input('Expense Amount', min_value=0.0, step=0.01, key='add_exp_amount')
             expense_category = st.selectbox('Expense Category', options=['Food', 'Transport', 'Entertainment', 'Utilities', 'Bills', 'Other'])
             expense_currency = st.selectbox('Expense Currency', options=['USD', 'EUR', 'JPY', 'GBP', 'AUD', 'CAD', 'CHF', 'CNY', 'SEK', 'NZD', 'THB', 'INR', 'Other'])
-            expense_date = st.date_input('Expense Date')
+            expense_date = st.date_input('Expense Date', key='add_exp_date')
             expense_notes = st.text_area('Expense Notes')
             recurring = st.checkbox('Recurring Expense')
             if st.form_submit_button('Add Expense'):
