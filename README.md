@@ -1,10 +1,16 @@
-Hello! My name is Matt and this is the first programming project I've ever done with my girlfriend. This
+Hello! Our team consists of Matt (PyMite6941) and Mackenzie (SeaMeetsSky38Times).
+
+## Setup
+
+## Features
 
 ## Inspiration
 
-My girlfriend actually recommended this project for me to do and it was so fun I needed her help to make it and also keep it within the scope it should be in.
+Mackenzie actually recommended this project for us to do and it was so fun that we both got carried away in our work.
 
 ## What it does
+
+This project uses Python as the main language and the module Streamlit for the Web UI and the module CrewAI for the scraping of Calendar materials such as Google Mail and Google Calendar.
 
 ## How we built it
 
