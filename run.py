@@ -8,8 +8,20 @@ from rich.panel import Panel
 import questionary
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 console = Console()
 console.print(Panel.fit("Welcome to the Calendar AI Assistant!", title="Calendar AI Assistant", title_align="center", border_style="blue", padding=(1, 2)))
+
+# Start the background scheduler (10-minute crew ticks)
+try:
+    from backend.scheduler import start as _start_scheduler, status as _scheduler_status
+    _start_scheduler(interval=600)
+    _s = _scheduler_status()
+    console.print(f"[dim]Scheduler running — crew ticks every {_s['interval_seconds'] // 60} min  ·  log: {_s['log_path']}[/dim]")
+except Exception as _e:
+    console.print(f"[yellow]Scheduler could not start: {_e}[/yellow]")
+
 choice = questionary.select(
     "How do you want to run the Calendar AI Assistant?",
     choices=[
