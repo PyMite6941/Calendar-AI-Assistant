@@ -26,12 +26,28 @@ TODOS_PATH    = PROJECT_ROOT / "backend/storage/todos.json"
 CONFIGS_PATH  = PROJECT_ROOT / "backend/storage/configs.toml"
 SECRETS_PATH  = PROJECT_ROOT / "backend/storage/secrets.toml"
 
+_EVENT_DEFAULTS = {
+    "title": "", "start": "", "end": "",
+    "description": "", "location": "", "color": "",
+    "reminder": 0, "recurrence": "none",
+}
+_TODO_DEFAULTS = {
+    "title": "", "description": "", "priority": "medium",
+    "due_date": "", "status": "pending", "tags": [], "notes": "",
+}
+
+def _ce(e: dict) -> dict:
+    return {**_EVENT_DEFAULTS, **e}
+
+def _ct(t: dict) -> dict:
+    return {**_TODO_DEFAULTS, **t}
+
 
 # ── calendar ──────────────────────────────────────────────────────────────────
 
 def get_events():
     try:
-        return json.loads(CALENDAR_PATH.read_text())
+        return [_ce(e) for e in json.loads(CALENDAR_PATH.read_text())]
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
@@ -39,31 +55,101 @@ def save_events(events):
     CALENDAR_PATH.parent.mkdir(parents=True, exist_ok=True)
     CALENDAR_PATH.write_text(json.dumps(events, indent=2))
 
+def _safe_select(prompt, choices, current):
+    default = current if current in choices else choices[0]
+    return questionary.select(prompt, choices=choices, default=default).ask()
+
 def calendar_menu():
     while True:
         choice = questionary.select(
-            "Calendar", choices=["View events", "Add event", "Delete event", "Back"]
+            "Calendar",
+            choices=["View events", "Add event", "Edit event", "Delete event", "Back"],
         ).ask()
 
         if choice == "View events":
             events = get_events()
             if not events:
-                console.print("[yellow]No events found.[/]")
+                console.print("[yellow]No events.[/]")
             else:
                 t = Table(title="Calendar Events", show_lines=True)
-                t.add_column("Title"); t.add_column("Start"); t.add_column("End")
-                for e in events:
-                    t.add_row(e.get("title", ""), e.get("start", ""), e.get("end", ""))
+                t.add_column("#",           style="dim", width=3)
+                t.add_column("Title",       style="bold")
+                t.add_column("Start")
+                t.add_column("End")
+                t.add_column("Location",    style="dim")
+                t.add_column("Recurrence",  style="dim")
+                t.add_column("Reminder",    style="dim")
+                for i, e in enumerate(events):
+                    reminder_str = f"{e['reminder']} min" if e.get("reminder") else "—"
+                    t.add_row(
+                        str(i),
+                        e.get("title", ""),
+                        e.get("start", ""),
+                        e.get("end", ""),
+                        e.get("location", "") or "—",
+                        e.get("recurrence", "none"),
+                        reminder_str,
+                    )
                 console.print(t)
+                # Detail view option
+                labels = [f"{i}: {e.get('title','')} ({e.get('start','')})" for i, e in enumerate(events)]
+                pick = questionary.select("View details or Back:", choices=labels + ["Back"]).ask()
+                if pick != "Back":
+                    idx = int(pick.split(":")[0])
+                    ev = events[idx]
+                    console.print(Panel(
+                        f"[bold]Title:[/]       {ev.get('title','')}\n"
+                        f"[bold]Start:[/]       {ev.get('start','')}\n"
+                        f"[bold]End:[/]         {ev.get('end','')}\n"
+                        f"[bold]Description:[/] {ev.get('description','') or '—'}\n"
+                        f"[bold]Location:[/]    {ev.get('location','') or '—'}\n"
+                        f"[bold]Recurrence:[/]  {ev.get('recurrence','none')}\n"
+                        f"[bold]Reminder:[/]    {ev.get('reminder',0)} min before",
+                        title=ev.get("title", "Event"),
+                        border_style="cyan",
+                    ))
 
         elif choice == "Add event":
-            title = questionary.text("Event title:").ask()
-            start = questionary.text("Start (YYYY-MM-DDTHH:MM:SS):").ask()
-            end   = questionary.text("End (YYYY-MM-DDTHH:MM:SS, or blank to match start):").ask() or start
+            title       = questionary.text("Title:").ask() or ""
+            start       = questionary.text("Start (YYYY-MM-DDTHH:MM:SS):").ask() or ""
+            end         = questionary.text("End (blank = same as start):").ask() or start
+            description = questionary.text("Description (optional):").ask() or ""
+            location    = questionary.text("Location (optional):").ask() or ""
+            recurrence  = questionary.select("Recurrence:", choices=["none","daily","weekly","monthly"]).ask()
+            reminder    = questionary.text("Reminder minutes before (0 = off):").ask() or "0"
             events = get_events()
-            events.append({"title": title, "start": start, "end": end})
+            events.append({
+                **_EVENT_DEFAULTS,
+                "title": title, "start": start, "end": end,
+                "description": description, "location": location,
+                "reminder": int(reminder), "recurrence": recurrence,
+            })
             save_events(events)
             console.print("[green]Event added.[/]")
+
+        elif choice == "Edit event":
+            events = get_events()
+            if not events:
+                console.print("[yellow]No events to edit.[/]")
+                continue
+            labels = [f"{i}: {e.get('title','')} ({e.get('start','')})" for i, e in enumerate(events)]
+            pick = questionary.select("Select event:", choices=labels + ["Cancel"]).ask()
+            if pick == "Cancel":
+                continue
+            idx = int(pick.split(":")[0])
+            ev  = events[idx]
+            patch = {
+                "title":       questionary.text("Title:",       default=ev["title"]).ask() or ev["title"],
+                "start":       questionary.text("Start:",       default=ev["start"]).ask() or ev["start"],
+                "end":         questionary.text("End:",         default=ev["end"]).ask()   or ev["end"],
+                "description": questionary.text("Description:", default=ev["description"]).ask() or "",
+                "location":    questionary.text("Location:",    default=ev["location"]).ask() or "",
+                "reminder":    int(questionary.text("Reminder (min):", default=str(ev["reminder"])).ask() or "0"),
+                "recurrence":  _safe_select("Recurrence:", ["none","daily","weekly","monthly"], ev["recurrence"]),
+            }
+            events[idx] = {**ev, **patch}
+            save_events(events)
+            console.print("[green]Event updated.[/]")
 
         elif choice == "Delete event":
             events = get_events()
@@ -84,7 +170,7 @@ def calendar_menu():
 
 def get_todos():
     try:
-        return json.loads(TODOS_PATH.read_text())
+        return [_ct(t) for t in json.loads(TODOS_PATH.read_text())]
     except (FileNotFoundError, json.JSONDecodeError):
         return []
 
@@ -92,30 +178,99 @@ def save_todos(todos):
     TODOS_PATH.parent.mkdir(parents=True, exist_ok=True)
     TODOS_PATH.write_text(json.dumps(todos, indent=2))
 
+_PRIORITY_ICON = {"high": "[red]●[/]", "medium": "[yellow]●[/]", "low": "[green]●[/]"}
+_STATUS_ICON   = {"pending": "⬜", "in-progress": "🔵", "done": "✅"}
+
 def todo_menu():
     while True:
         choice = questionary.select(
-            "Todo List", choices=["View todos", "Add todo", "Delete todo", "Back"]
+            "Todo List",
+            choices=["View todos", "Add todo", "Edit todo", "Delete todo", "Back"],
         ).ask()
 
         if choice == "View todos":
             todos = get_todos()
             if not todos:
-                console.print("[yellow]No todos found.[/]")
+                console.print("[yellow]No todos.[/]")
             else:
                 t = Table(title="Todo List", show_lines=True)
-                t.add_column("#"); t.add_column("Title"); t.add_column("Description")
+                t.add_column("#",        style="dim", width=3)
+                t.add_column("Status",   width=4)
+                t.add_column("P",        width=3)
+                t.add_column("Title",    style="bold")
+                t.add_column("Due",      style="dim")
+                t.add_column("Description")
                 for i, todo in enumerate(todos):
-                    t.add_row(str(i), todo.get("title", ""), todo.get("description", ""))
+                    p  = todo.get("priority", "medium")
+                    st = todo.get("status",   "pending")
+                    t.add_row(
+                        str(i),
+                        _STATUS_ICON.get(st, ""),
+                        _PRIORITY_ICON.get(p, ""),
+                        todo.get("title", ""),
+                        todo.get("due_date", "") or "—",
+                        todo.get("description", ""),
+                    )
                 console.print(t)
+                # Detail view option
+                labels = [f"{i}: {td.get('title','')} [{td.get('status','pending')}]" for i, td in enumerate(todos)]
+                pick = questionary.select("View details or Back:", choices=labels + ["Back"]).ask()
+                if pick != "Back":
+                    idx  = int(pick.split(":")[0])
+                    todo = todos[idx]
+                    tags_str = ", ".join(todo.get("tags", [])) or "—"
+                    console.print(Panel(
+                        f"[bold]Title:[/]       {todo.get('title','')}\n"
+                        f"[bold]Status:[/]      {todo.get('status','pending')}\n"
+                        f"[bold]Priority:[/]    {todo.get('priority','medium')}\n"
+                        f"[bold]Due:[/]         {todo.get('due_date','') or '—'}\n"
+                        f"[bold]Description:[/] {todo.get('description','') or '—'}\n"
+                        f"[bold]Tags:[/]        {tags_str}\n"
+                        f"[bold]Notes:[/]       {todo.get('notes','') or '—'}",
+                        title=todo.get("title", "Todo"),
+                        border_style="blue",
+                    ))
 
         elif choice == "Add todo":
-            title = questionary.text("Title:").ask()
-            desc  = questionary.text("Description:").ask()
+            title    = questionary.text("Title:").ask() or ""
+            desc     = questionary.text("Description:").ask() or ""
+            priority = questionary.select("Priority:", choices=["low","medium","high"]).ask()
+            due_date = questionary.text("Due date (YYYY-MM-DD, or blank):").ask() or ""
+            notes    = questionary.text("Notes (optional):").ask() or ""
             todos = get_todos()
-            todos.append({"title": title, "description": desc})
+            todos.append({
+                **_TODO_DEFAULTS,
+                "title": title, "description": desc,
+                "priority": priority, "due_date": due_date, "notes": notes,
+            })
             save_todos(todos)
             console.print("[green]Todo added.[/]")
+
+        elif choice == "Edit todo":
+            todos = get_todos()
+            if not todos:
+                console.print("[yellow]No todos to edit.[/]")
+                continue
+            pick = questionary.select(
+                "Select todo:",
+                choices=[f"{i}: {t.get('title','')} [{t.get('status','pending')}]"
+                         for i, t in enumerate(todos)] + ["Cancel"],
+            ).ask()
+            if pick == "Cancel":
+                continue
+            idx  = int(pick.split(":")[0])
+            todo = todos[idx]
+            patch = {
+                "title":       questionary.text("Title:",       default=todo["title"]).ask()       or todo["title"],
+                "description": questionary.text("Description:", default=todo["description"]).ask() or "",
+                "priority":    _safe_select("Priority:", ["low","medium","high"], todo["priority"]),
+                "status":      _safe_select("Status:", ["pending","in-progress","done"], todo["status"]),
+                "due_date":    questionary.text("Due date:", default=todo["due_date"]).ask() or "",
+                "notes":       questionary.text("Notes:",    default=todo["notes"]).ask() or "",
+            }
+            todos[idx] = {**todo, **patch}
+            save_todos(todos)
+            console.print("[green]Todo updated.[/]")
 
         elif choice == "Delete todo":
             todos = get_todos()
@@ -179,28 +334,6 @@ def get_secret(section, key, default=None):
     except FileNotFoundError:
         return default
 
-def set_secret(section, key, value):
-    try:
-        with open(SECRETS_PATH, "rb") as f:
-            secrets = tomllib.load(f)
-    except FileNotFoundError:
-        secrets = {}
-    secrets.setdefault(section, {})[key] = value
-    SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SECRETS_PATH, "wb") as f:
-        tomli_w.dump(secrets, f)
-
-def set_secret_toplevel(key, value):
-    try:
-        with open(SECRETS_PATH, "rb") as f:
-            secrets = tomllib.load(f)
-    except FileNotFoundError:
-        secrets = {}
-    secrets[key] = value
-    SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SECRETS_PATH, "wb") as f:
-        tomli_w.dump(secrets, f)
-
 def settings_menu():
     while True:
         choice = questionary.select(
@@ -220,13 +353,13 @@ def settings_menu():
 
         if choice == "View settings":
             provider = get_secret_top("api_provider", "Ollama")
-            model = get_secret_top(f"{str(provider).lower()}_model", "not set")
+            model    = get_secret_top(f"{str(provider).lower()}_model", "not set")
             console.print(Panel(
-                f"Calendar view:           {get_config('calendar_view', 'dayGridMonth')}\n"
-                f"Notification preferences: {get_config('notification_preferences', 'Email, SMS')}\n"
-                f"API provider:            {provider}\n"
-                f"AI model:                {model}\n"
-                f"API key:                 {'set' if get_secret_top('api_key') else 'not set'}",
+                f"[bold]Calendar view:[/]            {get_config('calendar_view', 'dayGridMonth')}\n"
+                f"[bold]Notification preferences:[/]  {get_config('notification_preferences', 'Email, SMS')}\n"
+                f"[bold]API provider:[/]             {provider}\n"
+                f"[bold]AI model:[/]                 {model}\n"
+                f"[bold]API key:[/]                  {'set' if get_secret_top('api_key') else 'not set'}",
                 title="Settings",
             ))
 
@@ -239,7 +372,8 @@ def settings_menu():
 
         elif choice == "Set notification preferences":
             prefs = questionary.text(
-                "Notification preferences:", default=get_config("notification_preferences", "Email, SMS")
+                "Notification preferences:",
+                default=get_config("notification_preferences", "Email, SMS"),
             ).ask()
             if prefs is not None:
                 set_config("notification_preferences", prefs)
@@ -284,7 +418,11 @@ def settings_menu():
 # ── chat ──────────────────────────────────────────────────────────────────────
 
 def chat_menu():
-    console.print(Panel("Type your message. Type [bold]exit[/bold] to go back.", title="AI Chat"))
+    console.print(Panel(
+        "Tell me to add events or todos, ask about your schedule, or just chat.\n"
+        "Type [bold]exit[/bold] to go back.",
+        title="AI Chat",
+    ))
     history = []
     while True:
         user_input = questionary.text("You:").ask()
@@ -294,7 +432,8 @@ def chat_menu():
         history.append(f"You: {user_input}")
         provider = str(get_secret_top("api_provider", "ollama")).lower()
         result = subprocess.run(
-            ["python", "backend/tools/connect_to_ai.py", "--ask", user_input, "--provider", provider],
+            [sys.executable, "backend/tools/connect_to_ai.py",
+             "--ask", user_input, "--provider", provider],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
         response = result.stdout.strip() or result.stderr.strip() or "No response."
@@ -321,7 +460,7 @@ def google_menu():
             console.print("[green]Connected successfully.[/]" if creds else "[red]Connection failed.[/]")
 
 
-# ── description ─────────────────────────────────────────────────────────────────
+# ── description ───────────────────────────────────────────────────────────────
 
 def description_menu():
     readme = PROJECT_ROOT / "README.md"
@@ -331,11 +470,11 @@ def description_menu():
         console.print("[yellow]No description yet.[/]")
 
 
-# ── portfolio ───────────────────────────────────────────────────────────────────
+# ── portfolio ─────────────────────────────────────────────────────────────────
 
 def _google_call(*flags):
     result = subprocess.run(
-        ["python", "backend/auth/add_google_oauth.py", *flags],
+        [sys.executable, "backend/auth/add_google_oauth.py", *flags],
         capture_output=True, text=True, cwd=str(PROJECT_ROOT),
     )
     try:
@@ -352,15 +491,15 @@ def portfolio_menu():
 
     overview = Table(title="At a Glance", show_lines=True)
     overview.add_column("Metric"); overview.add_column("Value")
-    overview.add_row("AI Providers", "5 — OpenAI · Groq · Gemini · Mistral · Ollama")
-    overview.add_row("Interfaces", "2 — Streamlit web UI + rich CLI")
+    overview.add_row("AI Providers",   "5 — OpenAI · Groq · Gemini · Mistral · Ollama")
+    overview.add_row("Interfaces",     "2 — Streamlit web UI + Rich CLI")
     overview.add_row("Agent Pipeline", "4 agents — Intent → Retrieve → Process → Verify")
     console.print(overview)
 
     console.print(Panel(
-        "[bold]Calendar Management[/] — add/view/delete events, month/week/day views, Google Calendar sync\n"
-        "[bold]AI Chat[/] — natural-language event & task creation, multi-provider, offline via Ollama\n"
-        "[bold]Todo List[/] — tasks with descriptions, persistent storage, AI-generated tasks\n"
+        "[bold]Calendar Management[/] — add/view/edit/delete events, location, reminders, recurrence\n"
+        "[bold]AI Chat[/]            — natural-language event & task creation, multi-provider, offline via Ollama\n"
+        "[bold]Todo List[/]          — priority, status, due date, tags, notes; add/edit/delete\n"
         "[bold]Google Integration[/] — Calendar read/write, Gmail read-only, secure token storage",
         title="Features",
     ))
@@ -374,21 +513,21 @@ def portfolio_menu():
 
     status = _google_call("--status")
     if status.get("connected"):
-        console.print(f"Google: [green]Connected[/] as [bold]{status.get('email', 'unknown')}[/] ({status.get('name', '')})")
+        console.print(f"Google: [green]Connected[/] as [bold]{status.get('email','unknown')}[/] ({status.get('name','')})")
         if questionary.confirm("Load upcoming Google Calendar events?", default=False).ask():
             events = _google_call("--list-events", "--max", "10")
             if isinstance(events, list) and events:
                 t = Table(title="Upcoming Google Events", show_lines=True)
                 t.add_column("Title"); t.add_column("Start"); t.add_column("Location")
                 for ev in events:
-                    t.add_row(ev.get("title", ""), ev.get("start", ""), ev.get("location", ""))
+                    t.add_row(ev.get("title",""), ev.get("start",""), ev.get("location","") or "—")
                 console.print(t)
             elif isinstance(events, dict) and events.get("error"):
                 console.print(f"[red]{events['error']}[/]")
             else:
                 console.print("[yellow]No upcoming events.[/]")
     else:
-        console.print("Google: [red]Not connected[/] — connect via the Google Account menu to see live data.")
+        console.print("Google: [red]Not connected[/] — use the Google Account menu to connect.")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -402,30 +541,26 @@ def main():
     ))
 
     while True:
-        connected = cli_is_connected()
-        google_label = "Google Account [green](connected)[/]" if connected else "Google Account [red](not connected)[/]"
+        connected    = cli_is_connected()
+        google_label = (
+            "Google Account [green](connected)[/]"
+            if connected else
+            "Google Account [red](not connected)[/]"
+        )
 
         choice = questionary.select(
             "Main Menu",
-            choices=[
-                "Description",
-                "Portfolio",
-                "Calendar",
-                "Todo List",
-                "Settings",
-                "Chat",
-                google_label,
-                "Exit",
-            ],
+            choices=["Description", "Portfolio", "Calendar", "Todo List",
+                     "Settings", "Chat", google_label, "Exit"],
         ).ask()
 
-        if choice == "Description":         description_menu()
-        elif choice == "Portfolio":         portfolio_menu()
-        elif choice == "Calendar":          calendar_menu()
-        elif choice == "Todo List":         todo_menu()
-        elif choice == "Settings":          settings_menu()
-        elif choice == "Chat":              chat_menu()
-        elif "Google Account" in choice:    google_menu()
+        if   choice == "Description":        description_menu()
+        elif choice == "Portfolio":          portfolio_menu()
+        elif choice == "Calendar":           calendar_menu()
+        elif choice == "Todo List":          todo_menu()
+        elif choice == "Settings":           settings_menu()
+        elif choice == "Chat":               chat_menu()
+        elif "Google Account" in choice:     google_menu()
         else:
             console.print("[cyan]Goodbye![/cyan]")
             break

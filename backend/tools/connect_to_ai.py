@@ -1,6 +1,7 @@
 import argparse
 import json
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -60,10 +61,17 @@ if not api_key and provider != "ollama":
     exit(1)
 
 SYSTEM_PROMPT = """You are a Calendar and Todo AI Assistant.
-When the user wants to add a todo, respond with exactly: {"action": "add_todo", "title": "...", "description": "..."}
-When the user wants to add a calendar event, respond with exactly: {"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS"}
-For all other messages, respond with exactly: {"action": "chat", "message": "..."}
-Always respond with valid JSON only. No extra text."""
+
+When the user wants to add a todo item, respond with exactly:
+{"action": "add_todo", "title": "...", "description": "...", "priority": "low|medium|high", "due_date": "YYYY-MM-DD or empty", "status": "pending|in-progress|done", "tags": ["tag1"], "notes": "..."}
+
+When the user wants to add a calendar event, respond with exactly:
+{"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "...", "location": "...", "color": "", "reminder": 15, "recurrence": "none|daily|weekly|monthly"}
+
+For all other messages, respond with exactly:
+{"action": "chat", "message": "..."}
+
+Always respond with valid JSON only. No extra text. Infer reasonable values for optional fields."""
 
 try:
     client = OpenAI(base_url=base_url, api_key=api_key)
@@ -79,19 +87,34 @@ try:
         data = json.loads(raw)
         action = data.get("action", "chat")
         if action == "add_todo":
+            title    = str(data.get("title") or "")
+            desc     = str(data.get("description") or "")
+            priority = str(data.get("priority") or "medium")
+            due_date = str(data.get("due_date") or "")
+            status   = str(data.get("status") or "pending")
+            tags     = json.dumps(data.get("tags") or [])
+            notes    = str(data.get("notes") or "")
             subprocess.run(
-                ["python", "backend/tools/todo_stuff.py", "--add", data.get("title", ""), data.get("description", "")],
+                [sys.executable, "backend/tools/todo_stuff.py", "--add",
+                 title, desc, priority, due_date, status, tags, notes],
                 cwd=str(_ROOT), capture_output=True,
             )
-            print(f"Done — added todo: {data.get('title', '')}")
+            print(f"Done — added todo: {title}")
         elif action == "add_event":
-            start = data.get("start", "")
-            end   = data.get("end", start)
+            title       = str(data.get("title") or "")
+            start       = str(data.get("start") or "")
+            end         = str(data.get("end") or start)
+            description = str(data.get("description") or "")
+            location    = str(data.get("location") or "")
+            color       = str(data.get("color") or "")
+            reminder    = str(data.get("reminder") or "0")
+            recurrence  = str(data.get("recurrence") or "none")
             subprocess.run(
-                ["python", "backend/tools/calendar_events.py", "--add", data.get("title", ""), start, end],
+                [sys.executable, "backend/tools/calendar_events.py", "--add",
+                 title, start, end, description, location, color, reminder, recurrence],
                 cwd=str(_ROOT), capture_output=True,
             )
-            print(f"Done — added event: {data.get('title', '')}")
+            print(f"Done — added event: {title}")
         else:
             print(data.get("message", raw))
     except json.JSONDecodeError:
