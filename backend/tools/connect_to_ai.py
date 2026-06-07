@@ -11,6 +11,11 @@ import urllib.request
 from openai import OpenAI
 from rich.console import Console
 
+_ROOT_EARLY = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT_EARLY))
+from backend.tools.calendar_events import get_events as _get_events
+from backend.tools.todo_stuff import get_todos as _get_todos_direct
+
 console = Console()
 parser = argparse.ArgumentParser()
 parser.add_argument("--ask",      metavar="QUESTION", required=True, help="Question to ask the AI")
@@ -71,17 +76,6 @@ if not api_key and provider != "ollama":
 
 # ── build runtime context ─────────────────────────────────────────────────────
 
-def _load_json_store(script: str) -> list:
-    try:
-        r = subprocess.run(
-            [sys.executable, script, "--get"],
-            capture_output=True, text=True, cwd=str(_ROOT),
-        )
-        return json.loads(r.stdout or "[]")
-    except Exception:
-        return []
-
-
 def _build_context() -> str:
     tz_name = configs.get("timezone", "")
     try:
@@ -114,8 +108,7 @@ def _build_context() -> str:
     if cal_view:
         lines.append(f"The user prefers the {cal_view} calendar view.")
 
-    # Inject current calendar events so the AI can answer schedule questions
-    events = _load_json_store("backend/tools/calendar_events.py")
+    events = _get_events()
     if events:
         upcoming = [e for e in events if e.get("start", "") >= today_str]
         display  = upcoming[:10] if upcoming else events[:5]
@@ -126,8 +119,7 @@ def _build_context() -> str:
     else:
         lines.append("\nThe user has no calendar events yet.")
 
-    # Inject current todos
-    todos = _load_json_store("backend/tools/todo_stuff.py")
+    todos = _get_todos_direct()
     if todos:
         active = [t for t in todos if t.get("status", "") != "done"][:10]
         lines.append(

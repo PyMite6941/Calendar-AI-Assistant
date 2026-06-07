@@ -9,12 +9,21 @@ from crewai import Agent, LLM
 from crewai.tools import tool
 
 _ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+
+from backend.tools.calendar_events import (
+    get_events, add_event, update_event, delete_event,
+)
+from backend.tools.todo_stuff import (
+    get_todos as _get_todos, add_todo as _add_todo,
+    update_todo as _update_todo, delete_todo as _delete_todo,
+)
+from backend.tools.config_editing import get_config_value, set_config_value
 
 
 # ── LLM factory ───────────────────────────────────────────────────────────────
 
 def _get_ollama_model(preferred: str) -> str:
-    """Return the preferred model if available, else the first listed model, else preferred."""
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as r:
             models = [m["name"] for m in json.loads(r.read()).get("models", [])]
@@ -31,7 +40,6 @@ def _get_ollama_model(preferred: str) -> str:
 
 
 def _build_llm() -> LLM:
-    """Build a crewai.LLM from the project's secrets.toml provider settings."""
     secrets_path = _ROOT / "backend/storage/secrets.toml"
     try:
         with open(secrets_path, "rb") as f:
@@ -67,16 +75,12 @@ def _build_llm() -> LLM:
 _llm = _build_llm()
 
 
-# ── local tools ───────────────────────────────────────────────────────────────
+# ── local tools (direct import — no subprocess) ───────────────────────────────
 
 @tool("get_calendar_events")
 def get_calendar_events() -> str:
     """Return all local calendar events as a JSON array."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/calendar_events.py", "--get"],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or "[]"
+    return json.dumps(get_events())
 
 
 @tool("add_calendar_event")
@@ -85,43 +89,30 @@ def add_calendar_event(title: str, start: str, end: str,
                        reminder: int = 0, recurrence: str = "none") -> str:
     """Add a local calendar event. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
     recurrence: none | daily | weekly | monthly. Returns JSON confirmation."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/calendar_events.py", "--add",
-         title, start, end, description, location, "", str(reminder), recurrence],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    return json.dumps(add_event(title, start, end, description, location, "", reminder, recurrence))
 
 
 @tool("update_calendar_event")
 def update_calendar_event(index: int, patch_json: str) -> str:
     """Update a local calendar event by index. patch_json: JSON object of fields to change.
     Returns JSON confirmation or error."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/calendar_events.py", "--update", str(index), "--json", patch_json],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    try:
+        patch = json.loads(patch_json)
+    except json.JSONDecodeError as e:
+        return json.dumps({"ok": False, "error": f"Invalid JSON: {e}"})
+    return json.dumps(update_event(index, patch))
 
 
 @tool("delete_calendar_event")
 def delete_calendar_event(index: int) -> str:
     """Delete a local calendar event by its 0-based index. Returns JSON confirmation or error."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/calendar_events.py", "--delete", str(index)],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    return json.dumps(delete_event(index))
 
 
 @tool("get_todos")
 def get_todos() -> str:
     """Return all todo items as a JSON array."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/todo_stuff.py", "--get"],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or "[]"
+    return json.dumps(_get_todos())
 
 
 @tool("add_todo")
@@ -129,44 +120,31 @@ def add_todo(title: str, description: str = "", priority: str = "medium",
              due_date: str = "", status: str = "pending", notes: str = "") -> str:
     """Add a todo item. priority: low | medium | high. status: pending | in-progress | done.
     Returns JSON confirmation."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/todo_stuff.py", "--add",
-         title, description, priority, due_date, status, "[]", notes],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    return json.dumps(_add_todo(title, description, priority, due_date, status, notes=notes))
 
 
 @tool("update_todo")
 def update_todo(index: int, patch_json: str) -> str:
     """Update a todo item by index. patch_json: JSON object of fields to change.
     Returns JSON confirmation or error."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/todo_stuff.py", "--update", str(index), "--json", patch_json],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    try:
+        patch = json.loads(patch_json)
+    except json.JSONDecodeError as e:
+        return json.dumps({"ok": False, "error": f"Invalid JSON: {e}"})
+    return json.dumps(_update_todo(index, patch))
 
 
 @tool("delete_todo")
 def delete_todo(index: int) -> str:
     """Delete a todo item by its 0-based index. Returns JSON confirmation or error."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/todo_stuff.py", "--delete", str(index)],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip() or result.stderr.strip()
+    return json.dumps(_delete_todo(index))
 
 
 @tool("get_config")
 def get_config(key: str, default: str = "") -> str:
     """Read a user config value by key (e.g. user_name, timezone, calendar_view,
     working_hours_start, working_hours_end, notification_preferences)."""
-    result = subprocess.run(
-        [sys.executable, "backend/tools/config_editing.py", "--key", key, "--default", default],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    return result.stdout.strip()
+    return str(get_config_value(key, default))
 
 
 @tool("set_config")
@@ -179,16 +157,14 @@ def set_config(key: str, value: str) -> str:
     }
     if key not in allowed:
         return json.dumps({"ok": False, "error": f"'{key}' is not a writable config key. Allowed: {sorted(allowed)}"})
-    result = subprocess.run(
-        [sys.executable, "backend/tools/config_editing.py", "--key", key, "--set", value],
-        capture_output=True, text=True, cwd=str(_ROOT),
-    )
-    if result.returncode == 0:
+    try:
+        set_config_value(key, value)
         return json.dumps({"ok": True, "action": "set", "key": key, "value": value})
-    return json.dumps({"ok": False, "error": result.stderr.strip() or "config write failed"})
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)})
 
 
-# ── Google tools ──────────────────────────────────────────────────────────────
+# ── Google tools (subprocess — requires OAuth flow) ───────────────────────────
 
 @tool("get_google_calendar_events")
 def get_google_calendar_events() -> str:
