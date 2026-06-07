@@ -342,6 +342,7 @@ def settings_menu():
                 "View settings",
                 "Set name",
                 "Set timezone",
+                "Set working hours",
                 "Set calendar view",
                 "Set notification preferences",
                 "Set API provider",
@@ -356,9 +357,12 @@ def settings_menu():
         if choice == "View settings":
             provider = get_secret_top("api_provider", "Ollama")
             model    = get_secret_top(f"{str(provider).lower()}_model", "not set")
+            wh_s = get_config("working_hours_start", "09:00")
+            wh_e = get_config("working_hours_end",   "18:00")
             console.print(Panel(
                 f"[bold]Name:[/]                     {get_config('user_name', 'not set')}\n"
                 f"[bold]Timezone:[/]                 {get_config('timezone', 'not set (uses system time)')}\n"
+                f"[bold]Working hours:[/]            {wh_s} – {wh_e}\n"
                 f"[bold]Calendar view:[/]            {get_config('calendar_view', 'dayGridMonth')}\n"
                 f"[bold]Notification preferences:[/]  {get_config('notification_preferences', 'Email, SMS')}\n"
                 f"[bold]API provider:[/]             {provider}\n"
@@ -383,6 +387,21 @@ def settings_menu():
             if tz is not None:
                 set_config("timezone", tz.strip())
                 console.print("[green]Saved.[/]")
+
+        elif choice == "Set working hours":
+            wh_s = questionary.text(
+                "Working hours start (HH:MM):",
+                default=str(get_config("working_hours_start", "09:00")),
+            ).ask()
+            wh_e = questionary.text(
+                "Working hours end (HH:MM):",
+                default=str(get_config("working_hours_end", "18:00")),
+            ).ask()
+            if wh_s is not None:
+                set_config("working_hours_start", wh_s.strip())
+            if wh_e is not None:
+                set_config("working_hours_end", wh_e.strip())
+            console.print("[green]Saved.[/]")
 
         elif choice == "Set calendar view":
             view = questionary.select(

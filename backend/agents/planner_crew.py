@@ -26,14 +26,27 @@ def _user_tz() -> tuple[str, ZoneInfo]:
         return "UTC", ZoneInfo("UTC")
 
 
+def _working_hours() -> tuple[str, str]:
+    try:
+        with open(_ROOT / "backend/storage/configs.toml", "rb") as f:
+            cfg = tomllib.load(f)
+        start = cfg.get("working_hours_start", "").strip() or "09:00"
+        end   = cfg.get("working_hours_end",   "").strip() or "18:00"
+        return start, end
+    except Exception:
+        return "09:00", "18:00"
+
+
 def run_planner() -> str:
     tz_name, tz = _user_tz()
     now   = datetime.now(tz)
     today = now.strftime("%A, %B %d, %Y")
     time  = now.strftime("%H:%M")
+    wh_start, wh_end = _working_hours()
     task = Task(
         description=f"""
 Today is {today}. Timezone: {tz_name} — current local time is {time}.
+Working hours: {wh_start} to {wh_end}.
 
 Use get_calendar_events and get_google_calendar_events to read all calendar events
 (local and Google Calendar). Use get_todos to read the task list.
@@ -43,7 +56,8 @@ Then produce an optimised, time-blocked daily plan for today that:
 - Treats all existing calendar events as hard, immovable blocks
 - Batches similar tasks together to minimise context switching
 - Leaves 10-minute buffer gaps between blocks
-- Covers the working day from the earliest existing event (or 9:00 AM) to 6:00 PM
+- Covers the working day from {wh_start} to {wh_end} (or from the earliest existing
+  event if it starts before {wh_start})
 - Schedules todo items without fixed times into available gaps, ordered by priority
 
 Format the plan as:

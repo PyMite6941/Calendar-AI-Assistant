@@ -160,12 +160,32 @@ def delete_todo(index: int) -> str:
 
 @tool("get_config")
 def get_config(key: str, default: str = "") -> str:
-    """Read a user config value by key (e.g. user_name, timezone, calendar_view)."""
+    """Read a user config value by key (e.g. user_name, timezone, calendar_view,
+    working_hours_start, working_hours_end, notification_preferences)."""
     result = subprocess.run(
         [sys.executable, "backend/tools/config_editing.py", "--key", key, "--default", default],
         capture_output=True, text=True, cwd=str(_ROOT),
     )
     return result.stdout.strip()
+
+
+@tool("set_config")
+def set_config(key: str, value: str) -> str:
+    """Write a user config value. Allowed keys: user_name, timezone, notification_preferences,
+    calendar_view, working_hours_start, working_hours_end."""
+    allowed = {
+        "user_name", "timezone", "notification_preferences",
+        "calendar_view", "working_hours_start", "working_hours_end",
+    }
+    if key not in allowed:
+        return json.dumps({"ok": False, "error": f"'{key}' is not a writable config key. Allowed: {sorted(allowed)}"})
+    result = subprocess.run(
+        [sys.executable, "backend/tools/config_editing.py", "--key", key, "--set", value],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    if result.returncode == 0:
+        return json.dumps({"ok": True, "action": "set", "key": key, "value": value})
+    return json.dumps({"ok": False, "error": result.stderr.strip() or "config write failed"})
 
 
 # ── Google tools ──────────────────────────────────────────────────────────────
@@ -252,7 +272,7 @@ intent_analyzer = Agent(
         "Your output is so structured and complete that downstream agents never need to re-read the original message."
     ),
     llm=_llm,
-    tools=[get_config],
+    tools=[get_config, set_config],
 )
 
 data_agent = Agent(
@@ -294,6 +314,7 @@ processing_agent = Agent(
         get_todos, add_todo, update_todo, delete_todo,
         get_google_calendar_events, add_google_calendar_event,
         update_google_calendar_event, delete_google_calendar_event,
+        set_config,
     ],
 )
 

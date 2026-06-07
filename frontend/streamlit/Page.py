@@ -289,6 +289,19 @@ def settings_page():
         "Notification Preferences",
         value=get_config("notification_preferences", "Email, SMS"),
     )
+    col_wh_s, col_wh_e = st.columns(2)
+    working_hours_start = col_wh_s.text_input(
+        "Working Hours Start",
+        value=get_config("working_hours_start", "09:00"),
+        placeholder="HH:MM",
+        help="Used by the Daily Planner to know when your day starts.",
+    )
+    working_hours_end = col_wh_e.text_input(
+        "Working Hours End",
+        value=get_config("working_hours_end", "18:00"),
+        placeholder="HH:MM",
+        help="Used by the Daily Planner to know when your day ends.",
+    )
     _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
     _saved_provider   = get_config("api_provider", "OpenAI", _SECRETS)
     _provider_index   = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
@@ -309,6 +322,8 @@ def settings_page():
         set_config("timezone",                   timezone.strip())
         set_config("calendar_view",              calendar_view)
         set_config("notification_preferences",   notification_preferences)
+        set_config("working_hours_start",        working_hours_start.strip())
+        set_config("working_hours_end",          working_hours_end.strip())
         st.success("Preferences saved.")
 
     st.divider()
