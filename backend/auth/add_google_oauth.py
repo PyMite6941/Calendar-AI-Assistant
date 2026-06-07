@@ -203,9 +203,12 @@ if __name__ == "__main__":
     from googleapiclient.discovery import build
 
     _parser = argparse.ArgumentParser(description="Google API access tool")
-    _parser.add_argument("--status", action="store_true", help="Check Google connection status")
-    _parser.add_argument("--list-events", action="store_true", help="List upcoming Google Calendar events")
-    _parser.add_argument("--list-messages", action="store_true", help="List recent Gmail messages")
+    _parser.add_argument("--status",       action="store_true", help="Check Google connection status")
+    _parser.add_argument("--list-events",  action="store_true", help="List upcoming Google Calendar events")
+    _parser.add_argument("--list-messages",action="store_true", help="List recent Gmail messages")
+    _parser.add_argument("--add-event",    metavar="JSON",      help="Insert event to Google Calendar (JSON)")
+    _parser.add_argument("--update-event", nargs=2, metavar=("EVENT_ID", "JSON"), help="Patch a Google Calendar event")
+    _parser.add_argument("--delete-event", metavar="EVENT_ID",  help="Delete a Google Calendar event")
     _parser.add_argument("--max", type=int, default=10, help="Max results to return")
     _args = _parser.parse_args()
 
@@ -233,6 +236,14 @@ if __name__ == "__main__":
         print(json.dumps({"error": "Not connected to Google. Use Settings to connect your account."}))
         sys.exit(1)
 
+    def _read_tz() -> str:
+        try:
+            import tomllib as _tl
+            with open(_ROOT / "backend/storage/configs.toml", "rb") as _f:
+                return _tl.load(_f).get("timezone") or "UTC"
+        except Exception:
+            return "UTC"
+
     if _args.list_events:
         try:
             from datetime import datetime, timezone
@@ -247,16 +258,67 @@ if __name__ == "__main__":
             ).execute()
             _events = [
                 {
-                    "title":    e.get("summary", "(no title)"),
-                    "start":    e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", ""),
-                    "end":      e.get("end",   {}).get("dateTime") or e.get("end",   {}).get("date", ""),
-                    "location": e.get("location", ""),
+                    "id":          e.get("id", ""),
+                    "title":       e.get("summary", "(no title)"),
+                    "start":       e.get("start", {}).get("dateTime") or e.get("start", {}).get("date", ""),
+                    "end":         e.get("end",   {}).get("dateTime") or e.get("end",   {}).get("date", ""),
+                    "location":    e.get("location", ""),
+                    "description": e.get("description", ""),
                 }
                 for e in _result.get("items", [])
             ]
             print(json.dumps(_events))
         except Exception as _e:
             print(json.dumps({"error": str(_e)}))
+        sys.exit(0)
+
+    if _args.add_event:
+        try:
+            _data = json.loads(_args.add_event)
+            _tz_name = _read_tz()
+            _svc = build("calendar", "v3", credentials=_creds)
+            _body = {
+                "summary":     _data.get("title", ""),
+                "description": _data.get("description", ""),
+                "location":    _data.get("location", ""),
+                "start": {"dateTime": _data["start"], "timeZone": _tz_name},
+                "end":   {"dateTime": _data["end"],   "timeZone": _tz_name},
+            }
+            _created = _svc.events().insert(calendarId="primary", body=_body).execute()
+            print(json.dumps({"ok": True, "action": "added", "id": _created.get("id"), "title": _data.get("title")}))
+        except Exception as _e:
+            print(json.dumps({"ok": False, "error": str(_e)}))
+        sys.exit(0)
+
+    if _args.update_event:
+        _event_id, _patch_str = _args.update_event
+        try:
+            _patch = json.loads(_patch_str)
+            _svc = build("calendar", "v3", credentials=_creds)
+            _body = {}
+            if "title" in _patch:
+                _body["summary"] = _patch["title"]
+            if "description" in _patch:
+                _body["description"] = _patch["description"]
+            if "location" in _patch:
+                _body["location"] = _patch["location"]
+            if "start" in _patch:
+                _body["start"] = {"dateTime": _patch["start"], "timeZone": _read_tz()}
+            if "end" in _patch:
+                _body["end"] = {"dateTime": _patch["end"], "timeZone": _read_tz()}
+            _updated = _svc.events().patch(calendarId="primary", eventId=_event_id, body=_body).execute()
+            print(json.dumps({"ok": True, "action": "updated", "id": _updated.get("id")}))
+        except Exception as _e:
+            print(json.dumps({"ok": False, "error": str(_e)}))
+        sys.exit(0)
+
+    if _args.delete_event:
+        try:
+            _svc = build("calendar", "v3", credentials=_creds)
+            _svc.events().delete(calendarId="primary", eventId=_args.delete_event).execute()
+            print(json.dumps({"ok": True, "action": "deleted"}))
+        except Exception as _e:
+            print(json.dumps({"ok": False, "error": str(_e)}))
         sys.exit(0)
 
     if _args.list_messages:

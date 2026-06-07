@@ -2,12 +2,9 @@ import argparse
 import json
 from pathlib import Path
 
-from rich.console import Console
-
 _ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_PATH = _ROOT / "backend/storage/todos.json"
 
-console = Console()
 parser = argparse.ArgumentParser()
 parser.add_argument("--get",    action="store_true", help="Get all todo items")
 parser.add_argument("--add",    nargs="+", metavar="ARG", help="Add: TITLE DESCRIPTION [priority] [due_date] [status] [tags] [notes]")
@@ -30,7 +27,6 @@ _DEFAULTS = {
 }
 
 def _coerce(item: dict) -> dict:
-    """Back-fill old items with new default fields."""
     return {**_DEFAULTS, **item}
 
 def get_todos():
@@ -62,26 +58,25 @@ elif args.add:
     todos = get_todos()
     todos.append(todo)
     save_todos(todos)
-    console.print(f"[bold green]Added: {todo['title']}[/]")
+    print(json.dumps({"ok": True, "action": "added", "todo": todo}))
 
 elif args.delete is not None:
     todos = get_todos()
     if 0 <= args.delete < len(todos):
         removed = todos.pop(args.delete)
         save_todos(todos)
-        console.print(f"[bold green]Deleted: {removed['title']}[/]")
+        print(json.dumps({"ok": True, "action": "deleted", "todo": removed}))
     else:
-        console.print("[bold red]Invalid index.[/]")
+        print(json.dumps({"ok": False, "error": f"Index {args.delete} out of range (0–{len(todos) - 1})"}))
 
 elif args.update is not None:
     todos = get_todos()
-    if 0 <= args.update < len(todos):
-        if args.json:
-            patch = json.loads(args.json)
-            todos[args.update] = {**todos[args.update], **patch}
-            save_todos(todos)
-            console.print(f"[bold green]Updated: {todos[args.update]['title']}[/]")
-        else:
-            console.print("[bold red]--update requires --json PAYLOAD[/]")
+    if not (0 <= args.update < len(todos)):
+        print(json.dumps({"ok": False, "error": f"Index {args.update} out of range (0–{len(todos) - 1})"}))
+    elif not args.json:
+        print(json.dumps({"ok": False, "error": "--update requires --json PAYLOAD"}))
     else:
-        console.print("[bold red]Invalid index.[/]")
+        patch = json.loads(args.json)
+        todos[args.update] = {**todos[args.update], **patch}
+        save_todos(todos)
+        print(json.dumps({"ok": True, "action": "updated", "todo": todos[args.update]}))

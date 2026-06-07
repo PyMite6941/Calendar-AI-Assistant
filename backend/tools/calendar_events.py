@@ -64,16 +64,25 @@ elif args.add:
     events = get_events()
     events.append(event)
     save_events(events)
+    print(json.dumps({"ok": True, "action": "added", "event": event}))
 
 elif args.delete is not None:
     events = get_events()
     if 0 <= args.delete < len(events):
-        events.pop(args.delete)
+        removed = events.pop(args.delete)
         save_events(events)
+        print(json.dumps({"ok": True, "action": "deleted", "event": removed}))
+    else:
+        print(json.dumps({"ok": False, "error": f"Index {args.delete} out of range (0–{len(events) - 1})"}))
 
 elif args.update is not None:
     events = get_events()
-    if 0 <= args.update < len(events) and args.json:
+    if not (0 <= args.update < len(events)):
+        print(json.dumps({"ok": False, "error": f"Index {args.update} out of range (0–{len(events) - 1})"}))
+    elif not args.json:
+        print(json.dumps({"ok": False, "error": "--update requires --json PAYLOAD"}))
+    else:
         patch = json.loads(args.json)
         events[args.update] = {**events[args.update], **patch}
         save_events(events)
+        print(json.dumps({"ok": True, "action": "updated", "event": events[args.update]}))
