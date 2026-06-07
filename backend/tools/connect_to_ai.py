@@ -11,8 +11,8 @@ import urllib.request
 from openai import OpenAI
 from rich.console import Console
 
-_ROOT_EARLY = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_ROOT_EARLY))
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
 from backend.tools.calendar_events import get_events as _get_events
 from backend.tools.todo_stuff import get_todos as _get_todos_direct
 
@@ -22,7 +22,6 @@ parser.add_argument("--ask",      metavar="QUESTION", required=True, help="Quest
 parser.add_argument("--provider", default=None, help="Override provider (groq, gemini, mistral, ollama)")
 args = parser.parse_args()
 
-_ROOT         = Path(__file__).resolve().parents[2]
 _SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
 _CONFIGS_PATH = _ROOT / "backend/storage/configs.toml"
 

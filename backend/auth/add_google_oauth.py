@@ -296,6 +296,7 @@ if __name__ == "__main__":
             _patch = json.loads(_patch_str)
             _svc = build("calendar", "v3", credentials=_creds)
             _body = {}
+            _tz = _read_tz()
             if "title" in _patch:
                 _body["summary"] = _patch["title"]
             if "description" in _patch:
@@ -303,9 +304,9 @@ if __name__ == "__main__":
             if "location" in _patch:
                 _body["location"] = _patch["location"]
             if "start" in _patch:
-                _body["start"] = {"dateTime": _patch["start"], "timeZone": _read_tz()}
+                _body["start"] = {"dateTime": _patch["start"], "timeZone": _tz}
             if "end" in _patch:
-                _body["end"] = {"dateTime": _patch["end"], "timeZone": _read_tz()}
+                _body["end"] = {"dateTime": _patch["end"], "timeZone": _tz}
             _updated = _svc.events().patch(calendarId="primary", eventId=_event_id, body=_body).execute()
             print(json.dumps({"ok": True, "action": "updated", "id": _updated.get("id")}))
         except Exception as _e:
