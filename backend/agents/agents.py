@@ -257,5 +257,5 @@ planner_agent = Agent(
         "plan the user can follow immediately, with a brief rationale for the ordering."
     ),
     llm=_llm,
-    tools=[get_calendar_events, get_todos, add_calendar_event, update_calendar_event, update_todo],
+    tools=[get_calendar_events, get_todos],
 )

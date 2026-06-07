@@ -38,7 +38,13 @@ Then add a short Rationale paragraph (3-5 sentences) explaining the ordering.
         agent=planner_agent,
     )
     crew = Crew(agents=[planner_agent], tasks=[task], process=Process.sequential, verbose=False)
-    result = str(crew.kickoff())
+    try:
+        result = str(crew.kickoff()).strip()
+    except Exception as exc:
+        raise RuntimeError(f"Planner crew failed: {exc}") from exc
+
+    if not result:
+        raise RuntimeError("Planner returned an empty plan.")
 
     _PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)
     _PLAN_PATH.write_text(json.dumps({

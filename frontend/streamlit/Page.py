@@ -317,7 +317,11 @@ def settings_page():
 
     st.divider()
     if st.button("Clear Cache"):
-        removed = sum(1 for d in PROJECT_ROOT.rglob("__pycache__") if d.exists() and not shutil.rmtree(d))
+        removed = 0
+        for d in PROJECT_ROOT.rglob("__pycache__"):
+            if d.exists():
+                shutil.rmtree(d)
+                removed += 1
         st.success(f"Cache cleared — {removed} folder(s) removed.")
 
 
@@ -498,7 +502,10 @@ with st.sidebar:
                 if _is_planning_request(user_input):
                     with st.spinner("Building your plan…"):
                         resp = _run(_PY, "backend/agents/planner_crew.py")
-                    ai_reply = resp.stdout.strip() or "Your daily plan has been generated — check the Daily Planner page."
+                    if resp.returncode == 0:
+                        ai_reply = resp.stdout.strip() or "Plan generated — check the Daily Planner page to view it."
+                    else:
+                        ai_reply = f"Failed to generate plan: {(resp.stderr or resp.stdout)[:300]}"
                 else:
                     provider = get_config("api_provider", "ollama", _SECRETS)
                     resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)

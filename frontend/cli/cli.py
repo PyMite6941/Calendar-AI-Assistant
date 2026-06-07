@@ -511,7 +511,10 @@ def chat_menu():
                 [sys.executable, "backend/agents/planner_crew.py"],
                 capture_output=True, text=True, cwd=str(PROJECT_ROOT),
             )
-            response = result.stdout.strip() or "Your daily plan has been generated — use Daily Planner to view it."
+            if result.returncode == 0:
+                response = result.stdout.strip() or "Plan generated — open Daily Planner to view it."
+            else:
+                response = f"Failed to generate plan: {(result.stderr or result.stdout)[:300]}"
         else:
             provider = str(get_secret_top("api_provider", "ollama")).lower()
             result = subprocess.run(
