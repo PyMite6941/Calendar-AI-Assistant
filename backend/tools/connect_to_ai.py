@@ -3,7 +3,9 @@ import json
 import subprocess
 import sys
 import tomllib
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import urllib.request
 from openai import OpenAI
@@ -11,12 +13,13 @@ from rich.console import Console
 
 console = Console()
 parser = argparse.ArgumentParser()
-parser.add_argument("--ask", metavar="QUESTION", required=True, help="Question to ask the AI")
+parser.add_argument("--ask",      metavar="QUESTION", required=True, help="Question to ask the AI")
 parser.add_argument("--provider", default=None, help="Override provider (groq, gemini, mistral, ollama)")
 args = parser.parse_args()
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT         = Path(__file__).resolve().parents[2]
 _SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
+_CONFIGS_PATH = _ROOT / "backend/storage/configs.toml"
 
 if not _SECRETS_PATH.exists():
     _SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -24,6 +27,12 @@ if not _SECRETS_PATH.exists():
 
 with open(_SECRETS_PATH, "rb") as f:
     secrets = tomllib.load(f)
+
+try:
+    with open(_CONFIGS_PATH, "rb") as f:
+        configs = tomllib.load(f)
+except FileNotFoundError:
+    configs = {}
 
 def _get_ollama_default():
     try:
@@ -60,18 +69,51 @@ if not api_key and provider != "ollama":
     console.print(f"[bold red]No API key set for '{provider}' in secrets.toml.[/]")
     exit(1)
 
-SYSTEM_PROMPT = """You are a Calendar and Todo AI Assistant.
+# ── build runtime context ─────────────────────────────────────────────────────
+
+def _build_context() -> str:
+    tz_name = configs.get("timezone", "")
+    try:
+        tz = ZoneInfo(tz_name) if tz_name else None
+    except ZoneInfoNotFoundError:
+        tz = None
+    now = datetime.now(tz) if tz else datetime.now()
+
+    lines = [
+        f"Today is {now.strftime('%A, %B %d, %Y')} and the current time is {now.strftime('%H:%M')}.",
+    ]
+
+    user_name = configs.get("user_name", "").strip()
+    if user_name:
+        lines.append(f"The user's name is {user_name}.")
+
+    notif = configs.get("notification_preferences", "").strip()
+    if notif:
+        lines.append(f"The user's notification preferences are: {notif}.")
+
+    cal_view = configs.get("calendar_view", "").strip()
+    if cal_view:
+        lines.append(f"The user prefers the {cal_view} calendar view.")
+
+    return "\n".join(lines)
+
+
+SYSTEM_PROMPT = f"""You are a Calendar and Todo AI Assistant.
+
+--- Context ---
+{_build_context()}
+---------------
 
 When the user wants to add a todo item, respond with exactly:
-{"action": "add_todo", "title": "...", "description": "...", "priority": "low|medium|high", "due_date": "YYYY-MM-DD or empty", "status": "pending|in-progress|done", "tags": ["tag1"], "notes": "..."}
+{{"action": "add_todo", "title": "...", "description": "...", "priority": "low|medium|high", "due_date": "YYYY-MM-DD or empty", "status": "pending|in-progress|done", "tags": ["tag1"], "notes": "..."}}
 
 When the user wants to add a calendar event, respond with exactly:
-{"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "...", "location": "...", "color": "", "reminder": 15, "recurrence": "none|daily|weekly|monthly"}
+{{"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "...", "location": "...", "color": "", "reminder": 15, "recurrence": "none|daily|weekly|monthly"}}
 
 For all other messages, respond with exactly:
-{"action": "chat", "message": "..."}
+{{"action": "chat", "message": "..."}}
 
-Always respond with valid JSON only. No extra text. Infer reasonable values for optional fields."""
+Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields."""
 
 try:
     client = OpenAI(base_url=base_url, api_key=api_key)

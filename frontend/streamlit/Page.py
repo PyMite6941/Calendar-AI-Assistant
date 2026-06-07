@@ -266,6 +266,18 @@ def settings_page():
     st.title("Settings")
     st.subheader("User Preferences")
 
+    user_name = st.text_input(
+        "Your name",
+        value=get_config("user_name", ""),
+        placeholder="e.g. Matt",
+        help="The AI will address you by name and personalise responses.",
+    )
+    timezone = st.text_input(
+        "Timezone",
+        value=get_config("timezone", ""),
+        placeholder="e.g. Asia/Bangkok",
+        help="IANA timezone name. Used so the AI knows your local time when resolving dates.",
+    )
     calendar_view = st.selectbox(
         "Preferred Calendar View",
         options=["dayGridMonth", "timeGridWeek", "timeGridDay"],
@@ -293,8 +305,10 @@ def settings_page():
         if api_key:
             set_config("api_key", api_key, _SECRETS)
         st.session_state["calendar_view"] = calendar_view
-        set_config("calendar_view",             calendar_view)
-        set_config("notification_preferences",  notification_preferences)
+        set_config("user_name",                  user_name.strip())
+        set_config("timezone",                   timezone.strip())
+        set_config("calendar_view",              calendar_view)
+        set_config("notification_preferences",   notification_preferences)
         st.success("Preferences saved.")
 
     st.divider()
@@ -305,6 +319,51 @@ def settings_page():
     if st.button("Clear Cache"):
         removed = sum(1 for d in PROJECT_ROOT.rglob("__pycache__") if d.exists() and not shutil.rmtree(d))
         st.success(f"Cache cleared — {removed} folder(s) removed.")
+
+
+_PLAN_TRIGGERS = {
+    "plan my day", "plan my schedule", "daily plan", "optimize my schedule",
+    "optimise my schedule", "schedule my day", "time block my day", "plan today",
+    "organize my day", "organise my day",
+}
+
+def _is_planning_request(text: str) -> bool:
+    lower = text.lower()
+    return any(kw in lower for kw in _PLAN_TRIGGERS)
+
+
+def planner_page():
+    st.title("Daily Planner")
+    st.caption("The AI reads your calendar and todos to build an optimised, time-blocked plan for today.")
+
+    plan_path = PROJECT_ROOT / "backend/storage/daily_plan.json"
+    plan_data = {}
+    if plan_path.exists():
+        try:
+            plan_data = json.loads(plan_path.read_text())
+        except json.JSONDecodeError:
+            pass
+
+    col_info, col_btn = st.columns([5, 1])
+    if plan_data:
+        gen_at     = plan_data.get("generated_at", "")[:19].replace("T", " ")
+        plan_date  = plan_data.get("plan_date", "")
+        col_info.caption(f"Generated: {gen_at}  ·  For: {plan_date}")
+    else:
+        col_info.info("No plan yet — ask the AI to plan your day, or click Generate.")
+
+    if col_btn.button("Generate", type="primary"):
+        with st.spinner("Building your plan…"):
+            res = _run(_PY, "backend/agents/planner_crew.py")
+        if res.returncode == 0:
+            st.rerun()
+        else:
+            st.error(f"Planner failed: {(res.stderr or res.stdout)[:400]}")
+        return
+
+    if plan_data.get("plan_text"):
+        st.divider()
+        st.markdown(plan_data["plan_text"])
 
 
 def portfolio_page():
@@ -404,11 +463,12 @@ User (Chat / CLI)
 # ── navigation ────────────────────────────────────────────────────────────────
 
 pages = [
-    st.Page(description_page, title="Description", icon=":material/description:"),
-    st.Page(portfolio_page,   title="Portfolio",   icon=":material/star:"),
-    st.Page(calendar_page,    title="Calendar",    icon=":material/calendar_month:"),
-    st.Page(todo_page,        title="Todo List",   icon=":material/checklist:"),
-    st.Page(settings_page,    title="Settings",    icon=":material/settings:"),
+    st.Page(description_page, title="Description",  icon=":material/description:"),
+    st.Page(portfolio_page,   title="Portfolio",    icon=":material/star:"),
+    st.Page(calendar_page,    title="Calendar",     icon=":material/calendar_month:"),
+    st.Page(todo_page,        title="Todo List",    icon=":material/checklist:"),
+    st.Page(planner_page,     title="Daily Planner",icon=":material/today:"),
+    st.Page(settings_page,    title="Settings",     icon=":material/settings:"),
 ]
 
 current_page = st.navigation(pages, position="top")
@@ -435,8 +495,13 @@ with st.sidebar:
         if st.form_submit_button("Send"):
             if user_input.strip():
                 st.session_state["chat_history"].append(f"You: {user_input.strip()}")
-                # Read provider from secrets.toml (where Settings saves it)
-                provider = get_config("api_provider", "ollama", _SECRETS)
-                resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)
-                st.session_state["chat_history"].append(f"AI: {resp.stdout.strip()}")
+                if _is_planning_request(user_input):
+                    with st.spinner("Building your plan…"):
+                        resp = _run(_PY, "backend/agents/planner_crew.py")
+                    ai_reply = resp.stdout.strip() or "Your daily plan has been generated — check the Daily Planner page."
+                else:
+                    provider = get_config("api_provider", "ollama", _SECRETS)
+                    resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)
+                    ai_reply = resp.stdout.strip()
+                st.session_state["chat_history"].append(f"AI: {ai_reply}")
                 st.rerun()

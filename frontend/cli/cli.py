@@ -340,6 +340,8 @@ def settings_menu():
             "Settings",
             choices=[
                 "View settings",
+                "Set name",
+                "Set timezone",
                 "Set calendar view",
                 "Set notification preferences",
                 "Set API provider",
@@ -355,6 +357,8 @@ def settings_menu():
             provider = get_secret_top("api_provider", "Ollama")
             model    = get_secret_top(f"{str(provider).lower()}_model", "not set")
             console.print(Panel(
+                f"[bold]Name:[/]                     {get_config('user_name', 'not set')}\n"
+                f"[bold]Timezone:[/]                 {get_config('timezone', 'not set (uses system time)')}\n"
                 f"[bold]Calendar view:[/]            {get_config('calendar_view', 'dayGridMonth')}\n"
                 f"[bold]Notification preferences:[/]  {get_config('notification_preferences', 'Email, SMS')}\n"
                 f"[bold]API provider:[/]             {provider}\n"
@@ -362,6 +366,23 @@ def settings_menu():
                 f"[bold]API key:[/]                  {'set' if get_secret_top('api_key') else 'not set'}",
                 title="Settings",
             ))
+
+        elif choice == "Set name":
+            name = questionary.text(
+                "Your name:", default=get_config("user_name", "")
+            ).ask()
+            if name is not None:
+                set_config("user_name", name.strip())
+                console.print("[green]Saved.[/]")
+
+        elif choice == "Set timezone":
+            tz = questionary.text(
+                "Timezone (IANA format, e.g. Asia/Bangkok, America/New_York):",
+                default=get_config("timezone", ""),
+            ).ask()
+            if tz is not None:
+                set_config("timezone", tz.strip())
+                console.print("[green]Saved.[/]")
 
         elif choice == "Set calendar view":
             view = questionary.select(
@@ -415,6 +436,60 @@ def settings_menu():
             break
 
 
+# ── daily planner ─────────────────────────────────────────────────────────────
+
+_PLAN_TRIGGERS = {
+    "plan my day", "plan my schedule", "daily plan", "optimize my schedule",
+    "optimise my schedule", "schedule my day", "time block my day", "plan today",
+    "organize my day", "organise my day",
+}
+
+def _is_planning_request(text: str) -> bool:
+    lower = text.lower()
+    return any(kw in lower for kw in _PLAN_TRIGGERS)
+
+
+def planner_menu():
+    plan_path = PROJECT_ROOT / "backend/storage/daily_plan.json"
+
+    while True:
+        plan_data = {}
+        if plan_path.exists():
+            try:
+                plan_data = json.loads(plan_path.read_text())
+            except json.JSONDecodeError:
+                pass
+
+        if plan_data:
+            gen_at    = plan_data.get("generated_at", "")[:19].replace("T", " ")
+            plan_date = plan_data.get("plan_date", "")
+            console.print(Panel(
+                plan_data.get("plan_text", ""),
+                title=f"Daily Plan — {plan_date}  (generated {gen_at})",
+                border_style="green",
+            ))
+        else:
+            console.print("[yellow]No plan saved yet.[/]")
+
+        choice = questionary.select(
+            "Daily Planner",
+            choices=["Generate new plan", "Back"],
+        ).ask()
+
+        if choice == "Generate new plan":
+            console.print("[cyan]Building your plan...[/]")
+            result = subprocess.run(
+                [sys.executable, "backend/agents/planner_crew.py"],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+            )
+            if result.returncode == 0:
+                console.print("[green]Plan generated.[/]")
+            else:
+                console.print(f"[red]Error: {(result.stderr or result.stdout)[:300]}[/]")
+        else:
+            break
+
+
 # ── chat ──────────────────────────────────────────────────────────────────────
 
 def chat_menu():
@@ -430,13 +505,21 @@ def chat_menu():
             break
 
         history.append(f"You: {user_input}")
-        provider = str(get_secret_top("api_provider", "ollama")).lower()
-        result = subprocess.run(
-            [sys.executable, "backend/tools/connect_to_ai.py",
-             "--ask", user_input, "--provider", provider],
-            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-        )
-        response = result.stdout.strip() or result.stderr.strip() or "No response."
+        if _is_planning_request(user_input):
+            console.print("[cyan]Building your plan...[/]")
+            result = subprocess.run(
+                [sys.executable, "backend/agents/planner_crew.py"],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+            )
+            response = result.stdout.strip() or "Your daily plan has been generated — use Daily Planner to view it."
+        else:
+            provider = str(get_secret_top("api_provider", "ollama")).lower()
+            result = subprocess.run(
+                [sys.executable, "backend/tools/connect_to_ai.py",
+                 "--ask", user_input, "--provider", provider],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+            )
+            response = result.stdout.strip() or result.stderr.strip() or "No response."
         history.append(f"AI: {response}")
         console.print(f"[bold cyan]AI:[/] {response}")
 
@@ -551,13 +634,14 @@ def main():
         choice = questionary.select(
             "Main Menu",
             choices=["Description", "Portfolio", "Calendar", "Todo List",
-                     "Settings", "Chat", google_label, "Exit"],
+                     "Daily Planner", "Settings", "Chat", google_label, "Exit"],
         ).ask()
 
         if   choice == "Description":        description_menu()
         elif choice == "Portfolio":          portfolio_menu()
         elif choice == "Calendar":           calendar_menu()
         elif choice == "Todo List":          todo_menu()
+        elif choice == "Daily Planner":      planner_menu()
         elif choice == "Settings":           settings_menu()
         elif choice == "Chat":               chat_menu()
         elif "Google Account" in choice:     google_menu()
