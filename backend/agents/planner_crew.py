@@ -1,7 +1,9 @@
 import json
 import sys
+import tomllib
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
@@ -12,18 +14,50 @@ from backend.agents.agents import planner_agent
 _PLAN_PATH = _ROOT / "backend/storage/daily_plan.json"
 
 
+def _user_tz() -> tuple[str, ZoneInfo]:
+    try:
+        with open(_ROOT / "backend/storage/configs.toml", "rb") as f:
+            tz_name = tomllib.load(f).get("timezone") or "UTC"
+    except Exception:
+        tz_name = "UTC"
+    try:
+        return tz_name, ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return "UTC", ZoneInfo("UTC")
+
+
+def _working_hours() -> tuple[str, str]:
+    try:
+        with open(_ROOT / "backend/storage/configs.toml", "rb") as f:
+            cfg = tomllib.load(f)
+        start = cfg.get("working_hours_start", "").strip() or "09:00"
+        end   = cfg.get("working_hours_end",   "").strip() or "18:00"
+        return start, end
+    except Exception:
+        return "09:00", "18:00"
+
+
 def run_planner() -> str:
-    today = datetime.now().strftime("%A, %B %d, %Y")
+    tz_name, tz = _user_tz()
+    now   = datetime.now(tz)
+    today = now.strftime("%A, %B %d, %Y")
+    time  = now.strftime("%H:%M")
+    wh_start, wh_end = _working_hours()
     task = Task(
         description=f"""
-Today is {today}.
+Today is {today}. Timezone: {tz_name} — current local time is {time}.
+Working hours: {wh_start} to {wh_end}.
 
-Use get_calendar_events and get_todos to read the user's full schedule and task list.
+Use get_calendar_events and get_google_calendar_events to read all calendar events
+(local and Google Calendar). Use get_todos to read the task list.
+Merge events from both sources, treating duplicates by title as the same event.
+
 Then produce an optimised, time-blocked daily plan for today that:
 - Treats all existing calendar events as hard, immovable blocks
 - Batches similar tasks together to minimise context switching
 - Leaves 10-minute buffer gaps between blocks
-- Covers the working day from the earliest existing event (or 9:00 AM) to 6:00 PM
+- Covers the working day from {wh_start} to {wh_end} (or from the earliest existing
+  event if it starts before {wh_start})
 - Schedules todo items without fixed times into available gaps, ordered by priority
 
 Format the plan as:
@@ -38,12 +72,18 @@ Then add a short Rationale paragraph (3-5 sentences) explaining the ordering.
         agent=planner_agent,
     )
     crew = Crew(agents=[planner_agent], tasks=[task], process=Process.sequential, verbose=False)
-    result = str(crew.kickoff())
+    try:
+        result = str(crew.kickoff()).strip()
+    except Exception as exc:
+        raise RuntimeError(f"Planner crew failed: {exc}") from exc
+
+    if not result:
+        raise RuntimeError("Planner returned an empty plan.")
 
     _PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)
     _PLAN_PATH.write_text(json.dumps({
-        "generated_at": datetime.now().isoformat(),
-        "plan_date": datetime.now().strftime("%Y-%m-%d"),
+        "generated_at": now.isoformat(),
+        "plan_date": now.strftime("%Y-%m-%d"),
         "plan_text": result,
     }, indent=2))
 

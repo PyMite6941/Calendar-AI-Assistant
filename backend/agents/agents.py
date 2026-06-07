@@ -1,8 +1,8 @@
+import json
 import subprocess
 import sys
 import tomllib
 import urllib.request
-import json
 from pathlib import Path
 
 from crewai import Agent, LLM
@@ -22,7 +22,6 @@ def _get_ollama_model(preferred: str) -> str:
             return preferred
         if preferred in models:
             return preferred
-        # try prefix match (e.g. "llama3.2" matches "llama3.2:3b")
         for m in models:
             if m.startswith(preferred.split(":")[0]):
                 return m
@@ -68,11 +67,11 @@ def _build_llm() -> LLM:
 _llm = _build_llm()
 
 
-# ── tools ─────────────────────────────────────────────────────────────────────
+# ── local tools ───────────────────────────────────────────────────────────────
 
 @tool("get_calendar_events")
 def get_calendar_events() -> str:
-    """Return all local calendar events as a JSON string."""
+    """Return all local calendar events as a JSON array."""
     result = subprocess.run(
         [sys.executable, "backend/tools/calendar_events.py", "--get"],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -84,8 +83,8 @@ def get_calendar_events() -> str:
 def add_calendar_event(title: str, start: str, end: str,
                        description: str = "", location: str = "",
                        reminder: int = 0, recurrence: str = "none") -> str:
-    """Add a calendar event. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
-    recurrence: none | daily | weekly | monthly."""
+    """Add a local calendar event. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
+    recurrence: none | daily | weekly | monthly. Returns JSON confirmation."""
     result = subprocess.run(
         [sys.executable, "backend/tools/calendar_events.py", "--add",
          title, start, end, description, location, "", str(reminder), recurrence],
@@ -96,7 +95,8 @@ def add_calendar_event(title: str, start: str, end: str,
 
 @tool("update_calendar_event")
 def update_calendar_event(index: int, patch_json: str) -> str:
-    """Update a calendar event by index. patch_json is a JSON object of fields to change."""
+    """Update a local calendar event by index. patch_json: JSON object of fields to change.
+    Returns JSON confirmation or error."""
     result = subprocess.run(
         [sys.executable, "backend/tools/calendar_events.py", "--update", str(index), "--json", patch_json],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -106,7 +106,7 @@ def update_calendar_event(index: int, patch_json: str) -> str:
 
 @tool("delete_calendar_event")
 def delete_calendar_event(index: int) -> str:
-    """Delete a calendar event by its 0-based index."""
+    """Delete a local calendar event by its 0-based index. Returns JSON confirmation or error."""
     result = subprocess.run(
         [sys.executable, "backend/tools/calendar_events.py", "--delete", str(index)],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -116,7 +116,7 @@ def delete_calendar_event(index: int) -> str:
 
 @tool("get_todos")
 def get_todos() -> str:
-    """Return all todo items as a JSON string."""
+    """Return all todo items as a JSON array."""
     result = subprocess.run(
         [sys.executable, "backend/tools/todo_stuff.py", "--get"],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -127,7 +127,8 @@ def get_todos() -> str:
 @tool("add_todo")
 def add_todo(title: str, description: str = "", priority: str = "medium",
              due_date: str = "", status: str = "pending", notes: str = "") -> str:
-    """Add a todo item. priority: low | medium | high. status: pending | in-progress | done."""
+    """Add a todo item. priority: low | medium | high. status: pending | in-progress | done.
+    Returns JSON confirmation."""
     result = subprocess.run(
         [sys.executable, "backend/tools/todo_stuff.py", "--add",
          title, description, priority, due_date, status, "[]", notes],
@@ -138,7 +139,8 @@ def add_todo(title: str, description: str = "", priority: str = "medium",
 
 @tool("update_todo")
 def update_todo(index: int, patch_json: str) -> str:
-    """Update a todo item by index. patch_json is a JSON object of fields to change."""
+    """Update a todo item by index. patch_json: JSON object of fields to change.
+    Returns JSON confirmation or error."""
     result = subprocess.run(
         [sys.executable, "backend/tools/todo_stuff.py", "--update", str(index), "--json", patch_json],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -148,7 +150,7 @@ def update_todo(index: int, patch_json: str) -> str:
 
 @tool("delete_todo")
 def delete_todo(index: int) -> str:
-    """Delete a todo item by its 0-based index."""
+    """Delete a todo item by its 0-based index. Returns JSON confirmation or error."""
     result = subprocess.run(
         [sys.executable, "backend/tools/todo_stuff.py", "--delete", str(index)],
         capture_output=True, text=True, cwd=str(_ROOT),
@@ -158,12 +160,99 @@ def delete_todo(index: int) -> str:
 
 @tool("get_config")
 def get_config(key: str, default: str = "") -> str:
-    """Read a user config value by key (e.g. user_name, timezone, calendar_view)."""
+    """Read a user config value by key (e.g. user_name, timezone, calendar_view,
+    working_hours_start, working_hours_end, notification_preferences)."""
     result = subprocess.run(
         [sys.executable, "backend/tools/config_editing.py", "--key", key, "--default", default],
         capture_output=True, text=True, cwd=str(_ROOT),
     )
     return result.stdout.strip()
+
+
+@tool("set_config")
+def set_config(key: str, value: str) -> str:
+    """Write a user config value. Allowed keys: user_name, timezone, notification_preferences,
+    calendar_view, working_hours_start, working_hours_end."""
+    allowed = {
+        "user_name", "timezone", "notification_preferences",
+        "calendar_view", "working_hours_start", "working_hours_end",
+    }
+    if key not in allowed:
+        return json.dumps({"ok": False, "error": f"'{key}' is not a writable config key. Allowed: {sorted(allowed)}"})
+    result = subprocess.run(
+        [sys.executable, "backend/tools/config_editing.py", "--key", key, "--set", value],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    if result.returncode == 0:
+        return json.dumps({"ok": True, "action": "set", "key": key, "value": value})
+    return json.dumps({"ok": False, "error": result.stderr.strip() or "config write failed"})
+
+
+# ── Google tools ──────────────────────────────────────────────────────────────
+
+@tool("get_google_calendar_events")
+def get_google_calendar_events() -> str:
+    """Return upcoming Google Calendar events as a JSON array (includes 'id' field for each event).
+    Returns [] if Google is not connected. Use the 'id' field when calling update or delete."""
+    result = subprocess.run(
+        [sys.executable, "backend/auth/add_google_oauth.py", "--list-events"],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    if result.returncode != 0:
+        return "[]"
+    return result.stdout.strip() or "[]"
+
+
+@tool("add_google_calendar_event")
+def add_google_calendar_event(title: str, start: str, end: str,
+                               description: str = "", location: str = "") -> str:
+    """Add an event to Google Calendar. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
+    Returns JSON with 'ok' and the new event 'id', or an error message if not connected."""
+    event_json = json.dumps({
+        "title": title, "start": start, "end": end,
+        "description": description, "location": location,
+    })
+    result = subprocess.run(
+        [sys.executable, "backend/auth/add_google_oauth.py", "--add-event", event_json],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    return result.stdout.strip() or result.stderr.strip()
+
+
+@tool("update_google_calendar_event")
+def update_google_calendar_event(event_id: str, patch_json: str) -> str:
+    """Update a Google Calendar event by its event ID (from get_google_calendar_events).
+    patch_json: JSON object of fields to change (title, start, end, description, location).
+    Returns JSON confirmation or error."""
+    result = subprocess.run(
+        [sys.executable, "backend/auth/add_google_oauth.py", "--update-event", event_id, patch_json],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    return result.stdout.strip() or result.stderr.strip()
+
+
+@tool("delete_google_calendar_event")
+def delete_google_calendar_event(event_id: str) -> str:
+    """Delete a Google Calendar event by its event ID (from get_google_calendar_events).
+    Returns JSON confirmation or error."""
+    result = subprocess.run(
+        [sys.executable, "backend/auth/add_google_oauth.py", "--delete-event", event_id],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    return result.stdout.strip() or result.stderr.strip()
+
+
+@tool("get_gmail_messages")
+def get_gmail_messages() -> str:
+    """Return recent Gmail inbox messages as a JSON array (subject, from, date, snippet).
+    Returns [] if Google is not connected."""
+    result = subprocess.run(
+        [sys.executable, "backend/auth/add_google_oauth.py", "--list-messages"],
+        capture_output=True, text=True, cwd=str(_ROOT),
+    )
+    if result.returncode != 0:
+        return "[]"
+    return result.stdout.strip() or "[]"
 
 
 # ── agents ────────────────────────────────────────────────────────────────────
@@ -177,13 +266,13 @@ intent_analyzer = Agent(
     backstory=(
         "You are a seasoned natural-language parser who has processed thousands of calendar and "
         "productivity requests. You never assume — you extract. If a date is relative ('next Friday', "
-        "'in four days', 'end of the week'), you resolve it to an absolute date. If a title is missing, "
-        "you infer the best one from context. If the intent is ambiguous, you pick the most likely "
-        "interpretation and state your assumption. Your output is so structured and complete that "
-        "downstream agents never need to re-read the original message."
+        "'in four days', 'end of the week'), you resolve it to an absolute date using the timezone "
+        "provided in the task context. If a title is missing, you infer the best one from context. "
+        "If the intent is ambiguous, you pick the most likely interpretation and state your assumption. "
+        "Your output is so structured and complete that downstream agents never need to re-read the original message."
     ),
     llm=_llm,
-    tools=[get_config],
+    tools=[get_config, set_config],
 )
 
 data_agent = Agent(
@@ -193,14 +282,14 @@ data_agent = Agent(
         "request — no more, no less — and identify the correct index of any item that needs updating or deleting."
     ),
     backstory=(
-        "You are a precise data librarian for the user's schedule. You know every event and task "
-        "stored locally and you retrieve only what's needed. When asked about upcoming events, you pull "
-        "them. When asked to update a todo, you find the right one by reading the full list first and "
-        "matching by title. You never guess an index — you always read the data before committing to a "
-        "position. If nothing relevant exists, you report that clearly so the processor can act accordingly."
+        "You are a precise data librarian for the user's schedule. You retrieve from both local storage "
+        "and Google Calendar when available. When asked about upcoming events, pull from both sources. "
+        "When asked to update a local item, find the right one by reading the full list and matching by title — "
+        "never guess an index. For Google Calendar items, use the 'id' field returned by get_google_calendar_events. "
+        "If nothing relevant exists, report that clearly so the processor can act accordingly."
     ),
     llm=_llm,
-    tools=[get_calendar_events, get_todos, get_config],
+    tools=[get_calendar_events, get_todos, get_config, get_google_calendar_events, get_gmail_messages],
 )
 
 processing_agent = Agent(
@@ -212,15 +301,20 @@ processing_agent = Agent(
     backstory=(
         "You are a decisive productivity assistant who takes action. When the intent is clear and the "
         "data is ready, you act: you call the right tool with the right parameters and confirm success. "
-        "For add actions, you fill in all available fields (title, start, end, location, priority, "
-        "due_date, notes) inferred from the user's message. For updates, you build a precise patch JSON "
-        "containing only the fields that changed. For questions, you answer in plain, friendly language "
-        "using the retrieved data. You never leave a task half-done."
+        "For add actions, fill in all available fields inferred from the user's message. "
+        "For updates, build a precise patch JSON containing only the changed fields. "
+        "Write to local storage by default. If the user explicitly mentions Google Calendar or if the "
+        "event originated from Google (has an 'id' field), use the Google Calendar tools instead. "
+        "Check tool output for 'ok: true' to confirm success — if 'ok' is false, report the error. "
+        "For questions, answer in plain, friendly language using the retrieved data."
     ),
     llm=_llm,
     tools=[
         get_calendar_events, add_calendar_event, update_calendar_event, delete_calendar_event,
         get_todos, add_todo, update_todo, delete_todo,
+        get_google_calendar_events, add_google_calendar_event,
+        update_google_calendar_event, delete_google_calendar_event,
+        set_config,
     ],
 )
 
@@ -233,21 +327,22 @@ verification_agent = Agent(
     backstory=(
         "You are the last line of defence before a response reaches the user. You verify that dates "
         "make sense (not accidentally in the past, correct day of the week), that titles are non-empty, "
-        "that actions were confirmed by the tool output, and that answers are accurate. "
+        "and that write actions returned ok:true in their tool output. "
         "You then rewrite the response in warm, second-person language: 'Your event has been added', "
-        "'You have 3 todos due this week', etc. If something looks wrong, you flag it clearly. "
-        "Your output is the exact text the user will read — so make it concise, correct, and human."
+        "'You have 3 todos due this week', etc. If something looks wrong, flag it clearly. "
+        "Your output is the exact text the user will read — concise, correct, and human."
     ),
     llm=_llm,
-    tools=[get_calendar_events, get_todos],
+    tools=[get_calendar_events, get_todos, get_google_calendar_events],
 )
 
 # Standalone — not in the main crew; invoked directly for explicit planning requests.
 planner_agent = Agent(
     role="Daily Schedule Optimizer",
     goal=(
-        "Read the user's current todos and calendar events, then produce an optimised time-blocked "
-        "daily plan that minimises context switching and respects existing calendar commitments."
+        "Read the user's current todos and calendar events (both local and Google Calendar), "
+        "then produce an optimised time-blocked daily plan that minimises context switching "
+        "and respects existing calendar commitments."
     ),
     backstory=(
         "You are an expert in time management and deep work. You know that context switching costs "
@@ -257,5 +352,5 @@ planner_agent = Agent(
         "plan the user can follow immediately, with a brief rationale for the ordering."
     ),
     llm=_llm,
-    tools=[get_calendar_events, get_todos, add_calendar_event, update_calendar_event, update_todo],
+    tools=[get_calendar_events, get_todos, get_google_calendar_events],
 )

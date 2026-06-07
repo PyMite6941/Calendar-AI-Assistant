@@ -71,6 +71,17 @@ if not api_key and provider != "ollama":
 
 # ── build runtime context ─────────────────────────────────────────────────────
 
+def _load_json_store(script: str) -> list:
+    try:
+        r = subprocess.run(
+            [sys.executable, script, "--get"],
+            capture_output=True, text=True, cwd=str(_ROOT),
+        )
+        return json.loads(r.stdout or "[]")
+    except Exception:
+        return []
+
+
 def _build_context() -> str:
     tz_name = configs.get("timezone", "")
     try:
@@ -78,10 +89,13 @@ def _build_context() -> str:
     except ZoneInfoNotFoundError:
         tz = None
     now = datetime.now(tz) if tz else datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
 
     lines = [
         f"Today is {now.strftime('%A, %B %d, %Y')} and the current time is {now.strftime('%H:%M')}.",
     ]
+    if tz_name:
+        lines.append(f"The user's timezone is {tz_name}.")
 
     user_name = configs.get("user_name", "").strip()
     if user_name:
@@ -91,9 +105,37 @@ def _build_context() -> str:
     if notif:
         lines.append(f"The user's notification preferences are: {notif}.")
 
+    wh_start = configs.get("working_hours_start", "").strip()
+    wh_end   = configs.get("working_hours_end", "").strip()
+    if wh_start and wh_end:
+        lines.append(f"The user's working hours are {wh_start} to {wh_end}.")
+
     cal_view = configs.get("calendar_view", "").strip()
     if cal_view:
         lines.append(f"The user prefers the {cal_view} calendar view.")
+
+    # Inject current calendar events so the AI can answer schedule questions
+    events = _load_json_store("backend/tools/calendar_events.py")
+    if events:
+        upcoming = [e for e in events if e.get("start", "") >= today_str]
+        display  = upcoming[:10] if upcoming else events[:5]
+        lines.append(
+            f"\nCurrent calendar events ({len(events)} total, showing up to 10 upcoming):\n"
+            + json.dumps(display, indent=2)
+        )
+    else:
+        lines.append("\nThe user has no calendar events yet.")
+
+    # Inject current todos
+    todos = _load_json_store("backend/tools/todo_stuff.py")
+    if todos:
+        active = [t for t in todos if t.get("status", "") != "done"][:10]
+        lines.append(
+            f"\nCurrent todos ({len(todos)} total, showing up to 10 non-done):\n"
+            + json.dumps(active, indent=2)
+        )
+    else:
+        lines.append("\nThe user has no todos yet.")
 
     return "\n".join(lines)
 
