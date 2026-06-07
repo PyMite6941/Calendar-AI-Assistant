@@ -3,7 +3,6 @@ import shutil
 import subprocess
 import sys
 import tomllib
-import tomli_w
 from pathlib import Path
 
 import questionary
@@ -16,44 +15,51 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.auth.add_google_oauth import cli_connect, cli_disconnect, cli_is_connected
+from backend.tools.calendar_events import (
+    get_events,
+    add_event  as _cal_add,
+    update_event as _cal_update,
+    delete_event as _cal_delete,
+)
+from backend.tools.todo_stuff import (
+    get_todos,
+    add_todo    as _todo_add,
+    update_todo as _todo_update,
+    delete_todo as _todo_delete,
+)
+from backend.tools.config_editing import get_config_value as _get_cfg, set_config_value as _set_cfg
 
-PROVIDERS = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
+PROVIDERS    = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
+console      = Console()
+SECRETS_PATH = PROJECT_ROOT / "backend/storage/secrets.toml"
 
-console = Console()
 
-CALENDAR_PATH = PROJECT_ROOT / "backend/storage/calendar_events.json"
-TODOS_PATH    = PROJECT_ROOT / "backend/storage/todos.json"
-CONFIGS_PATH  = PROJECT_ROOT / "backend/storage/configs.toml"
-SECRETS_PATH  = PROJECT_ROOT / "backend/storage/secrets.toml"
+# ── config helpers ─────────────────────────────────────────────────────────────
 
-_EVENT_DEFAULTS = {
-    "title": "", "start": "", "end": "",
-    "description": "", "location": "", "color": "",
-    "reminder": 0, "recurrence": "none",
-}
-_TODO_DEFAULTS = {
-    "title": "", "description": "", "priority": "medium",
-    "due_date": "", "status": "pending", "tags": [], "notes": "",
-}
+def get_config(key, default=None):
+    v = _get_cfg(key, default)
+    return str(v) if v is not None else (str(default) if default is not None else "")
 
-def _ce(e: dict) -> dict:
-    return {**_EVENT_DEFAULTS, **e}
+def set_config(key, value):
+    _set_cfg(key, str(value))
 
-def _ct(t: dict) -> dict:
-    return {**_TODO_DEFAULTS, **t}
+def get_secret_top(key, default=None):
+    v = _get_cfg(key, default, SECRETS_PATH)
+    return str(v) if v is not None else default
+
+def set_secret_top(key, value):
+    _set_cfg(key, str(value), SECRETS_PATH)
+
+def get_secret(section, key, default=None):
+    """Read a nested [section] key from secrets.toml."""
+    try:
+        with open(SECRETS_PATH, "rb") as f:
+            return tomllib.load(f).get(section, {}).get(key, default)
+    except FileNotFoundError:
+        return default
 
 
 # ── calendar ──────────────────────────────────────────────────────────────────
-
-def get_events():
-    try:
-        return [_ce(e) for e in json.loads(CALENDAR_PATH.read_text())]
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-def save_events(events):
-    CALENDAR_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CALENDAR_PATH.write_text(json.dumps(events, indent=2))
 
 def _safe_select(prompt, choices, current):
     default = current if current in choices else choices[0]
@@ -91,12 +97,11 @@ def calendar_menu():
                         reminder_str,
                     )
                 console.print(t)
-                # Detail view option
                 labels = [f"{i}: {e.get('title','')} ({e.get('start','')})" for i, e in enumerate(events)]
                 pick = questionary.select("View details or Back:", choices=labels + ["Back"]).ask()
                 if pick != "Back":
                     idx = int(pick.split(":")[0])
-                    ev = events[idx]
+                    ev  = events[idx]
                     console.print(Panel(
                         f"[bold]Title:[/]       {ev.get('title','')}\n"
                         f"[bold]Start:[/]       {ev.get('start','')}\n"
@@ -117,14 +122,7 @@ def calendar_menu():
             location    = questionary.text("Location (optional):").ask() or ""
             recurrence  = questionary.select("Recurrence:", choices=["none","daily","weekly","monthly"]).ask()
             reminder    = questionary.text("Reminder minutes before (0 = off):").ask() or "0"
-            events = get_events()
-            events.append({
-                **_EVENT_DEFAULTS,
-                "title": title, "start": start, "end": end,
-                "description": description, "location": location,
-                "reminder": int(reminder), "recurrence": recurrence,
-            })
-            save_events(events)
+            _cal_add(title, start, end, description, location, "", int(reminder), recurrence)
             console.print("[green]Event added.[/]")
 
         elif choice == "Edit event":
@@ -147,8 +145,7 @@ def calendar_menu():
                 "reminder":    int(questionary.text("Reminder (min):", default=str(ev["reminder"])).ask() or "0"),
                 "recurrence":  _safe_select("Recurrence:", ["none","daily","weekly","monthly"], ev["recurrence"]),
             }
-            events[idx] = {**ev, **patch}
-            save_events(events)
+            _cal_update(idx, patch)
             console.print("[green]Event updated.[/]")
 
         elif choice == "Delete event":
@@ -159,24 +156,14 @@ def calendar_menu():
             labels = [f"{i}: {e.get('title','')} ({e.get('start','')})" for i, e in enumerate(events)]
             pick = questionary.select("Select event to delete:", choices=labels + ["Cancel"]).ask()
             if pick != "Cancel":
-                removed = events.pop(int(pick.split(":")[0]))
-                save_events(events)
-                console.print(f"[green]Deleted: {removed.get('title')}[/]")
+                result = _cal_delete(int(pick.split(":")[0]))
+                title  = result.get("event", {}).get("title", "")
+                console.print(f"[green]Deleted: {title}[/]")
         else:
             break
 
 
 # ── todos ─────────────────────────────────────────────────────────────────────
-
-def get_todos():
-    try:
-        return [_ct(t) for t in json.loads(TODOS_PATH.read_text())]
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-def save_todos(todos):
-    TODOS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TODOS_PATH.write_text(json.dumps(todos, indent=2))
 
 _PRIORITY_ICON = {"high": "[red]●[/]", "medium": "[yellow]●[/]", "low": "[green]●[/]"}
 _STATUS_ICON   = {"pending": "⬜", "in-progress": "🔵", "done": "✅"}
@@ -192,44 +179,58 @@ def todo_menu():
             todos = get_todos()
             if not todos:
                 console.print("[yellow]No todos.[/]")
-            else:
-                t = Table(title="Todo List", show_lines=True)
-                t.add_column("#",        style="dim", width=3)
-                t.add_column("Status",   width=4)
-                t.add_column("P",        width=3)
-                t.add_column("Title",    style="bold")
-                t.add_column("Due",      style="dim")
-                t.add_column("Description")
-                for i, todo in enumerate(todos):
-                    p  = todo.get("priority", "medium")
-                    st = todo.get("status",   "pending")
-                    t.add_row(
-                        str(i),
-                        _STATUS_ICON.get(st, ""),
-                        _PRIORITY_ICON.get(p, ""),
-                        todo.get("title", ""),
-                        todo.get("due_date", "") or "—",
-                        todo.get("description", ""),
-                    )
-                console.print(t)
-                # Detail view option
-                labels = [f"{i}: {td.get('title','')} [{td.get('status','pending')}]" for i, td in enumerate(todos)]
-                pick = questionary.select("View details or Back:", choices=labels + ["Back"]).ask()
-                if pick != "Back":
-                    idx  = int(pick.split(":")[0])
-                    todo = todos[idx]
-                    tags_str = ", ".join(todo.get("tags", [])) or "—"
-                    console.print(Panel(
-                        f"[bold]Title:[/]       {todo.get('title','')}\n"
-                        f"[bold]Status:[/]      {todo.get('status','pending')}\n"
-                        f"[bold]Priority:[/]    {todo.get('priority','medium')}\n"
-                        f"[bold]Due:[/]         {todo.get('due_date','') or '—'}\n"
-                        f"[bold]Description:[/] {todo.get('description','') or '—'}\n"
-                        f"[bold]Tags:[/]        {tags_str}\n"
-                        f"[bold]Notes:[/]       {todo.get('notes','') or '—'}",
-                        title=todo.get("title", "Todo"),
-                        border_style="blue",
-                    ))
+                continue
+
+            # Filters (parity with Streamlit)
+            filter_status   = questionary.select("Filter by status:",   choices=["all","pending","in-progress","done"]).ask()
+            filter_priority = questionary.select("Filter by priority:", choices=["all","high","medium","low"]).ask()
+            shown = [
+                (i, t) for i, t in enumerate(todos)
+                if (filter_status   == "all" or t.get("status",   "pending") == filter_status)
+                and (filter_priority == "all" or t.get("priority", "medium")  == filter_priority)
+            ]
+
+            if not shown:
+                console.print("[yellow]No items match the filter.[/]")
+                continue
+
+            t = Table(title="Todo List", show_lines=True)
+            t.add_column("#",        style="dim", width=3)
+            t.add_column("Status",   width=4)
+            t.add_column("P",        width=3)
+            t.add_column("Title",    style="bold")
+            t.add_column("Due",      style="dim")
+            t.add_column("Description")
+            for i, todo in shown:
+                p  = todo.get("priority", "medium")
+                st = todo.get("status",   "pending")
+                t.add_row(
+                    str(i),
+                    _STATUS_ICON.get(st, ""),
+                    _PRIORITY_ICON.get(p, ""),
+                    todo.get("title", ""),
+                    todo.get("due_date", "") or "—",
+                    todo.get("description", ""),
+                )
+            console.print(t)
+
+            labels = [f"{i}: {td.get('title','')} [{td.get('status','pending')}]" for i, td in shown]
+            pick = questionary.select("View details or Back:", choices=labels + ["Back"]).ask()
+            if pick != "Back":
+                idx  = int(pick.split(":")[0])
+                todo = todos[idx]
+                tags_str = ", ".join(todo.get("tags", [])) or "—"
+                console.print(Panel(
+                    f"[bold]Title:[/]       {todo.get('title','')}\n"
+                    f"[bold]Status:[/]      {todo.get('status','pending')}\n"
+                    f"[bold]Priority:[/]    {todo.get('priority','medium')}\n"
+                    f"[bold]Due:[/]         {todo.get('due_date','') or '—'}\n"
+                    f"[bold]Description:[/] {todo.get('description','') or '—'}\n"
+                    f"[bold]Tags:[/]        {tags_str}\n"
+                    f"[bold]Notes:[/]       {todo.get('notes','') or '—'}",
+                    title=todo.get("title", "Todo"),
+                    border_style="blue",
+                ))
 
         elif choice == "Add todo":
             title    = questionary.text("Title:").ask() or ""
@@ -237,13 +238,7 @@ def todo_menu():
             priority = questionary.select("Priority:", choices=["low","medium","high"]).ask()
             due_date = questionary.text("Due date (YYYY-MM-DD, or blank):").ask() or ""
             notes    = questionary.text("Notes (optional):").ask() or ""
-            todos = get_todos()
-            todos.append({
-                **_TODO_DEFAULTS,
-                "title": title, "description": desc,
-                "priority": priority, "due_date": due_date, "notes": notes,
-            })
-            save_todos(todos)
+            _todo_add(title, desc, priority, due_date, notes=notes)
             console.print("[green]Todo added.[/]")
 
         elif choice == "Edit todo":
@@ -268,8 +263,7 @@ def todo_menu():
                 "due_date":    questionary.text("Due date:", default=todo["due_date"]).ask() or "",
                 "notes":       questionary.text("Notes:",    default=todo["notes"]).ask() or "",
             }
-            todos[idx] = {**todo, **patch}
-            save_todos(todos)
+            _todo_update(idx, patch)
             console.print("[green]Todo updated.[/]")
 
         elif choice == "Delete todo":
@@ -282,57 +276,13 @@ def todo_menu():
                 choices=[f"{i}: {t.get('title', '')}" for i, t in enumerate(todos)] + ["Cancel"],
             ).ask()
             if pick != "Cancel":
-                todos.pop(int(pick.split(":")[0]))
-                save_todos(todos)
+                _todo_delete(int(pick.split(":")[0]))
                 console.print("[green]Deleted.[/]")
         else:
             break
 
 
 # ── settings ──────────────────────────────────────────────────────────────────
-
-def get_config(key, default=None):
-    try:
-        with open(CONFIGS_PATH, "rb") as f:
-            return tomllib.load(f).get(key, default)
-    except FileNotFoundError:
-        return default
-
-def set_config(key, value):
-    try:
-        with open(CONFIGS_PATH, "rb") as f:
-            configs = tomllib.load(f)
-    except FileNotFoundError:
-        configs = {}
-    configs[key] = value
-    CONFIGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIGS_PATH, "wb") as f:
-        tomli_w.dump(configs, f)
-
-def get_secret_top(key, default=None):
-    try:
-        with open(SECRETS_PATH, "rb") as f:
-            return tomllib.load(f).get(key, default)
-    except FileNotFoundError:
-        return default
-
-def set_secret_top(key, value):
-    try:
-        with open(SECRETS_PATH, "rb") as f:
-            secrets = tomllib.load(f)
-    except FileNotFoundError:
-        secrets = {}
-    secrets[key] = value
-    SECRETS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SECRETS_PATH, "wb") as f:
-        tomli_w.dump(secrets, f)
-
-def get_secret(section, key, default=None):
-    try:
-        with open(SECRETS_PATH, "rb") as f:
-            return tomllib.load(f).get(section, {}).get(key, default)
-    except FileNotFoundError:
-        return default
 
 def settings_menu():
     while True:
@@ -391,11 +341,11 @@ def settings_menu():
         elif choice == "Set working hours":
             wh_s = questionary.text(
                 "Working hours start (HH:MM):",
-                default=str(get_config("working_hours_start", "09:00")),
+                default=get_config("working_hours_start", "09:00"),
             ).ask()
             wh_e = questionary.text(
                 "Working hours end (HH:MM):",
-                default=str(get_config("working_hours_end", "18:00")),
+                default=get_config("working_hours_end", "18:00"),
             ).ask()
             if wh_s is not None:
                 set_config("working_hours_start", wh_s.strip())
@@ -429,7 +379,7 @@ def settings_menu():
             provider = get_secret_top("api_provider", "Ollama")
             model = questionary.text(
                 f"AI model for {provider}:",
-                default=str(get_secret_top(f"{str(provider).lower()}_model", "")),
+                default=get_secret_top(f"{str(provider).lower()}_model", ""),
             ).ask()
             if model:
                 set_secret_top(f"{str(provider).lower()}_model", model)
@@ -517,7 +467,6 @@ def chat_menu():
         "Type [bold]exit[/bold] to go back.",
         title="AI Chat",
     ))
-    # Rolling window of prior messages passed to the AI for multi-turn context.
     _msg_history: list[dict] = []
     while True:
         user_input = questionary.text("You:").ask()
@@ -608,7 +557,7 @@ def portfolio_menu():
     console.print(Panel(
         "[bold]Calendar Management[/] — add/view/edit/delete events, location, reminders, recurrence\n"
         "[bold]AI Chat[/]            — natural-language event & task creation, multi-provider, offline via Ollama\n"
-        "[bold]Todo List[/]          — priority, status, due date, tags, notes; add/edit/delete\n"
+        "[bold]Todo List[/]          — priority, status, due date, tags, notes; add/edit/delete; filter by status/priority\n"
         "[bold]Google Integration[/] — Calendar read/write, Gmail read-only, secure token storage",
         title="Features",
     ))
