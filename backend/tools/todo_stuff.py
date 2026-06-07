@@ -51,6 +51,8 @@ def add_todo(title: str, description: str = "", priority: str = "medium",
 
 def delete_todo(index: int, path: Path = _DEFAULT_PATH) -> dict:
     todos = get_todos(path)
+    if not todos:
+        return {"ok": False, "error": "No todos to delete"}
     if 0 <= index < len(todos):
         removed = todos.pop(index)
         save_todos(todos, path)
@@ -60,6 +62,8 @@ def delete_todo(index: int, path: Path = _DEFAULT_PATH) -> dict:
 
 def update_todo(index: int, patch: dict, path: Path = _DEFAULT_PATH) -> dict:
     todos = get_todos(path)
+    if not todos:
+        return {"ok": False, "error": "No todos to update"}
     if not (0 <= index < len(todos)):
         return {"ok": False, "error": f"Index {index} out of range (0–{len(todos) - 1})"}
     todos[index] = {**todos[index], **patch}

@@ -22,7 +22,7 @@ from backend.tools.todo_stuff import (
     update_todo as _lib_update_todo,
     delete_todo as _lib_delete_todo,
 )
-from backend.tools.config_editing import get_config_value as _lib_get_cfg, set_config_value as _lib_set_cfg
+from backend.tools.config_editing import get_config_value as _lib_get_cfg, set_config_value as _lib_set_cfg, read_config as _read_cfg_file
 
 _SECRETS = "backend/storage/secrets.toml"
 _PRIORITY_COLORS = {"high": "🔴", "medium": "🟡", "low": "🟢"}
@@ -58,6 +58,7 @@ if not st.session_state.get("initialized"):
     st.session_state["initialized"]    = True
     st.session_state["calendar_view"]  = get_config("calendar_view", "dayGridMonth")
     st.session_state["chat_history"]   = []
+    st.session_state["chat_messages"]  = []   # [{role, content}] for multi-turn AI history
 
 
 # ── dialogs ───────────────────────────────────────────────────────────────────
@@ -270,15 +271,23 @@ def settings_page():
     st.title("Settings")
     st.subheader("User Preferences")
 
+    # Read each config file once; all widget defaults come from these dicts.
+    _cfg = _read_cfg_file(PROJECT_ROOT / "backend/storage/configs.toml")
+    _sec = _read_cfg_file(PROJECT_ROOT / "backend/storage/secrets.toml")
+
+    def _cv(d, key, default=""):
+        v = d.get(key)
+        return str(v) if v is not None else str(default)
+
     user_name = st.text_input(
         "Your name",
-        value=get_config("user_name", ""),
+        value=_cv(_cfg, "user_name"),
         placeholder="e.g. Matt",
         help="The AI will address you by name and personalise responses.",
     )
     timezone = st.text_input(
         "Timezone",
-        value=get_config("timezone", ""),
+        value=_cv(_cfg, "timezone"),
         placeholder="e.g. Asia/Bangkok",
         help="IANA timezone name. Used so the AI knows your local time when resolving dates.",
     )
@@ -291,28 +300,28 @@ def settings_page():
     )
     notification_preferences = st.text_input(
         "Notification Preferences",
-        value=get_config("notification_preferences", "Email, SMS"),
+        value=_cv(_cfg, "notification_preferences", "Email, SMS"),
     )
     col_wh_s, col_wh_e = st.columns(2)
     working_hours_start = col_wh_s.text_input(
         "Working Hours Start",
-        value=get_config("working_hours_start", "09:00"),
+        value=_cv(_cfg, "working_hours_start", "09:00"),
         placeholder="HH:MM",
         help="Used by the Daily Planner to know when your day starts.",
     )
     working_hours_end = col_wh_e.text_input(
         "Working Hours End",
-        value=get_config("working_hours_end", "18:00"),
+        value=_cv(_cfg, "working_hours_end", "18:00"),
         placeholder="HH:MM",
         help="Used by the Daily Planner to know when your day ends.",
     )
     _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
-    _saved_provider   = get_config("api_provider", "OpenAI", _SECRETS)
+    _saved_provider   = _cv(_sec, "api_provider", "OpenAI")
     _provider_index   = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
     api_provider  = st.selectbox("API Provider", options=_provider_options, index=_provider_index)
     ai_model      = st.text_input(
         "AI Model",
-        value=get_config(f"{api_provider.lower()}_model", f"{api_provider.lower()}-default", _SECRETS),
+        value=_cv(_sec, f"{api_provider.lower()}_model", f"{api_provider.lower()}-default"),
     )
     api_key = st.text_input("API Key", type="password")
 
@@ -527,7 +536,14 @@ with st.sidebar:
                         ai_reply = f"Failed to generate plan: {(resp.stderr or resp.stdout)[:300]}"
                 else:
                     provider = get_config("api_provider", "ollama", _SECRETS)
-                    resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)
+                    prior = json.dumps(st.session_state["chat_messages"][-10:])
+                    resp = _run(_PY, "backend/tools/connect_to_ai.py",
+                                "--ask", user_input.strip(),
+                                "--provider", provider,
+                                "--history", prior)
                     ai_reply = resp.stdout.strip()
+
+                st.session_state["chat_messages"].append({"role": "user",      "content": user_input.strip()})
+                st.session_state["chat_messages"].append({"role": "assistant", "content": ai_reply})
                 st.session_state["chat_history"].append(f"AI: {ai_reply}")
                 st.rerun()

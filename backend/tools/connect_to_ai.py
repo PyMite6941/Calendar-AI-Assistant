@@ -20,6 +20,7 @@ console = Console()
 parser = argparse.ArgumentParser()
 parser.add_argument("--ask",      metavar="QUESTION", required=True, help="Question to ask the AI")
 parser.add_argument("--provider", default=None, help="Override provider (groq, gemini, mistral, ollama)")
+parser.add_argument("--history",  default="[]", help="JSON array of prior {role, content} messages")
 args = parser.parse_args()
 
 _SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
@@ -149,11 +150,20 @@ For all other messages, respond with exactly:
 Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields."""
 
 try:
+    prior_messages = []
+    try:
+        prior_messages = json.loads(args.history or "[]")
+        if not isinstance(prior_messages, list):
+            prior_messages = []
+    except json.JSONDecodeError:
+        prior_messages = []
+
     client = OpenAI(base_url=base_url, api_key=api_key)
     response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
+            *prior_messages,
             {"role": "user", "content": args.ask},
         ],
     )
@@ -167,7 +177,8 @@ try:
             priority = str(data.get("priority") or "medium")
             due_date = str(data.get("due_date") or "")
             status   = str(data.get("status") or "pending")
-            tags     = json.dumps(data.get("tags") or [])
+            raw_tags = data.get("tags")
+            tags     = json.dumps(raw_tags if isinstance(raw_tags, list) else [])
             notes    = str(data.get("notes") or "")
             subprocess.run(
                 [sys.executable, "backend/tools/todo_stuff.py", "--add",

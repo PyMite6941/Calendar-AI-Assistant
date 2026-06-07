@@ -517,13 +517,13 @@ def chat_menu():
         "Type [bold]exit[/bold] to go back.",
         title="AI Chat",
     ))
-    history = []
+    # Rolling window of prior messages passed to the AI for multi-turn context.
+    _msg_history: list[dict] = []
     while True:
         user_input = questionary.text("You:").ask()
         if not user_input or user_input.lower() == "exit":
             break
 
-        history.append(f"You: {user_input}")
         if _is_planning_request(user_input):
             console.print("[cyan]Building your plan...[/]")
             result = subprocess.run(
@@ -538,11 +538,15 @@ def chat_menu():
             provider = str(get_secret_top("api_provider", "ollama")).lower()
             result = subprocess.run(
                 [sys.executable, "backend/tools/connect_to_ai.py",
-                 "--ask", user_input, "--provider", provider],
+                 "--ask", user_input,
+                 "--provider", provider,
+                 "--history", json.dumps(_msg_history[-10:])],
                 capture_output=True, text=True, cwd=str(PROJECT_ROOT),
             )
             response = result.stdout.strip() or result.stderr.strip() or "No response."
-        history.append(f"AI: {response}")
+
+        _msg_history.append({"role": "user",      "content": user_input})
+        _msg_history.append({"role": "assistant",  "content": response})
         console.print(f"[bold cyan]AI:[/] {response}")
 
 

@@ -72,7 +72,7 @@ def _build_kickoff_context() -> dict:
     return {
         "today":    today,
         "tz_ctx":   tz_ctx,
-        "user_ctx": "  ".join(user_parts),
+        "user_ctx": " ".join(user_parts),
     }
 
 

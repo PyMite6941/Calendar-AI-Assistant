@@ -51,6 +51,8 @@ def add_event(title: str, start: str, end: str = "", description: str = "",
 
 def delete_event(index: int, path: Path = _DEFAULT_PATH) -> dict:
     events = get_events(path)
+    if not events:
+        return {"ok": False, "error": "No events to delete"}
     if 0 <= index < len(events):
         removed = events.pop(index)
         save_events(events, path)
@@ -60,6 +62,8 @@ def delete_event(index: int, path: Path = _DEFAULT_PATH) -> dict:
 
 def update_event(index: int, patch: dict, path: Path = _DEFAULT_PATH) -> dict:
     events = get_events(path)
+    if not events:
+        return {"ok": False, "error": "No events to update"}
     if not (0 <= index < len(events)):
         return {"ok": False, "error": f"Index {index} out of range (0–{len(events) - 1})"}
     events[index] = {**events[index], **patch}
