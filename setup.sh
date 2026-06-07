@@ -36,8 +36,8 @@ python -m venv .venv
 
 if [ "$OS" = "Linux" ] || [ "$OS" = "Darwin" ]; then
     source .venv/bin/activate
-elif [ "$OS" = "Windows_NT" ] || echo "$OS" | grep -qi "mingw\|cygwin\|msys"; then
-    .venv/Scripts/Activate.ps1
+elif echo "$OS" | grep -qE "MINGW|CYGWIN|MSYS"; then
+    source .venv/Scripts/activate
 else
     echo "Unsupported OS: $OS. Activate the virtual environment manually."
     exit 1
