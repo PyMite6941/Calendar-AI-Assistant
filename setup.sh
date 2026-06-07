@@ -1,35 +1,59 @@
-if [ ollama list | grep -q "llama3.1" && echo "Model pulled" ]; then
-    echo "Do you wish to use Llama 3.1? Y/n"
-    read $choice
-    if [ $choice = "Y" ] || [ $choice = "y" ]; then
+#!/usr/bin/env bash
+set -e
+
+OS=$(uname -s)
+
+# ── Ollama / model selection ──────────────────────────────────────────────────
+
+if command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | grep -q "llama3.1"; then
+    printf "Llama 3.1 is already pulled. Use it? [Y/n] "
+    read choice
+    if [ "$choice" = "Y" ] || [ "$choice" = "y" ] || [ -z "$choice" ]; then
         echo "Using Ollama for local LLMs."
-        python backend/tools/config_editing.py --set local_model True
+        python backend/tools/config_editing.py --key local_model --set True
     else
-        echo "Then hook up API keys in the settings menu."
-        python backend/tools/config_editing.py --set local_model False
+        echo "Hook up API keys in the settings menu."
+        python backend/tools/config_editing.py --key local_model --set False
+    fi
+elif command -v ollama >/dev/null 2>&1; then
+    printf "Ollama found but Llama 3.1 not pulled. Pull it now? [Y/n] "
+    read choice
+    if [ "$choice" = "Y" ] || [ "$choice" = "y" ] || [ -z "$choice" ]; then
+        ollama pull llama3.1:8b
+        python backend/tools/config_editing.py --key local_model --set True
+    else
+        echo "Hook up API keys in the settings menu."
+        python backend/tools/config_editing.py --key local_model --set False
     fi
 else
-    echo "Do you want to install Ollama model Llama 3.1? Y/n"
-    read $choice
-    OS=$(uname -s)
-    if [ $choice = "Y" ] || [ $choice = "y" ]; then
-        ollama pull llama3.1:8b
-        python backend/tools/config_editing.py --set local_model True
-    else
-        echo "Then hook up API keys in the settings menu."
-        python backend/tools/config_editing.py --set local_model False
-    fi
+    echo "Ollama not found. Hook up API keys in the settings menu."
+    python backend/tools/config_editing.py --key local_model --set False
 fi
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+
 python -m venv .venv
-if [ $OS = "Linux" ] || [ $OS = "Darwin" ]; then
-    source .venv/Scripts/activate.bat
-else if [ $OS = "Windows" ]; then
+
+if [ "$OS" = "Linux" ] || [ "$OS" = "Darwin" ]; then
+    source .venv/bin/activate
+elif [ "$OS" = "Windows_NT" ] || echo "$OS" | grep -qi "mingw\|cygwin\|msys"; then
     .venv/Scripts/Activate.ps1
 else
-    echo "Unsupported operating system. Please activate the virtual environment manually."
+    echo "Unsupported OS: $OS. Activate the virtual environment manually."
     exit 1
 fi
-echo "What is your name?"
-read $name
-echo "Setup complete! Activating run.py ..."
+
+# ── Install dependencies ──────────────────────────────────────────────────────
+
+pip install -r requirements.txt -q
+
+# ── User setup ────────────────────────────────────────────────────────────────
+
+printf "What is your name? "
+read name
+if [ -n "$name" ]; then
+    python backend/tools/config_editing.py --key user_name --set "$name"
+fi
+
+echo "Setup complete! Starting the app..."
 python run.py
