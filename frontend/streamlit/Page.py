@@ -54,10 +54,23 @@ def get_todos():
 st.set_page_config(page_title="Calendar AI Assistant", page_icon=":calendar:", layout="centered")
 get_creds()
 
+_CHAT_HISTORY_PATH = PROJECT_ROOT / "backend/storage/chat_history.json"
+
+def _load_chat_history() -> list:
+    try:
+        return json.loads(_CHAT_HISTORY_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _save_chat_history(history: list) -> None:
+    _CHAT_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CHAT_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+
+
 if not st.session_state.get("initialized"):
-    st.session_state["initialized"]    = True
-    st.session_state["calendar_view"]  = get_config("calendar_view", "dayGridMonth")
-    st.session_state["chat_history"]   = []
+    st.session_state["initialized"]   = True
+    st.session_state["calendar_view"] = get_config("calendar_view", "dayGridMonth")
+    st.session_state["chat_history"]  = _load_chat_history()
 
 
 # ── dialogs ───────────────────────────────────────────────────────────────────
@@ -268,8 +281,9 @@ def todo_page():
 
 def settings_page():
     st.title("Settings")
-    st.subheader("User Preferences")
 
+    # ── User Preferences ──────────────────────────────────────────────────────
+    st.subheader("User Preferences")
     user_name = st.text_input(
         "Your name",
         value=get_config("user_name", ""),
@@ -306,34 +320,61 @@ def settings_page():
         placeholder="HH:MM",
         help="Used by the Daily Planner to know when your day ends.",
     )
+    if st.button("Save User Preferences"):
+        st.session_state["calendar_view"] = calendar_view
+        set_config("user_name",                user_name.strip())
+        set_config("timezone",                 timezone.strip())
+        set_config("calendar_view",            calendar_view)
+        set_config("notification_preferences", notification_preferences)
+        set_config("working_hours_start",      working_hours_start.strip())
+        set_config("working_hours_end",        working_hours_end.strip())
+        st.success("User preferences saved.")
+
+    # ── API Configuration ─────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("API Configuration")
+
     _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
     _saved_provider   = get_config("api_provider", "OpenAI", _SECRETS)
     _provider_index   = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
-    api_provider  = st.selectbox("API Provider", options=_provider_options, index=_provider_index)
-    ai_model      = st.text_input(
+    api_provider = st.selectbox("API Provider", options=_provider_options, index=_provider_index)
+    ai_model     = st.text_input(
         "AI Model",
-        value=get_config(f"{api_provider.lower()}_model", f"{api_provider.lower()}-default", _SECRETS),
+        value=get_config(f"{api_provider.lower()}_model", "", _SECRETS),
+        placeholder=f"e.g. llama-3.3-70b-versatile",
     )
-    api_key = st.text_input("API Key", type="password")
 
-    if st.button("Save Preferences"):
-        set_config("api_provider",               api_provider,    _SECRETS)
-        set_config(f"{api_provider.lower()}_model", ai_model,     _SECRETS)
-        if api_key:
-            set_config("api_key", api_key, _SECRETS)
-        st.session_state["calendar_view"] = calendar_view
-        set_config("user_name",                  user_name.strip())
-        set_config("timezone",                   timezone.strip())
-        set_config("calendar_view",              calendar_view)
-        set_config("notification_preferences",   notification_preferences)
-        set_config("working_hours_start",        working_hours_start.strip())
-        set_config("working_hours_end",          working_hours_end.strip())
-        st.success("Preferences saved.")
+    _saved_key = get_config("api_key", "", _SECRETS) or ""
+    col_key_label, col_key_toggle = st.columns([3, 1])
+    col_key_label.markdown("**Current API Key**")
+    show_key = col_key_toggle.checkbox("Show", value=False, key="reveal_api_key")
+    if _saved_key:
+        if show_key:
+            st.code(_saved_key, language=None)
+        else:
+            st.caption("●" * min(len(_saved_key), 40))
+    else:
+        st.caption("_Not set_")
 
+    new_api_key = st.text_input(
+        "New API Key",
+        type="password",
+        placeholder="Paste new key to update — leave blank to keep current",
+    )
+
+    if st.button("Save API Configuration"):
+        set_config("api_provider", api_provider, _SECRETS)
+        set_config(f"{api_provider.lower()}_model", ai_model, _SECRETS)
+        if new_api_key.strip():
+            set_config("api_key", new_api_key.strip(), _SECRETS)
+        st.success("API configuration saved.")
+
+    # ── Google Account ────────────────────────────────────────────────────────
     st.divider()
     st.subheader("Google Account")
     connect_button()
 
+    # ── Maintenance ───────────────────────────────────────────────────────────
     st.divider()
     if st.button("Clear Cache"):
         removed = 0
@@ -342,17 +383,6 @@ def settings_page():
                 shutil.rmtree(d)
                 removed += 1
         st.success(f"Cache cleared — {removed} folder(s) removed.")
-
-
-_PLAN_TRIGGERS = {
-    "plan my day", "plan my schedule", "daily plan", "optimize my schedule",
-    "optimise my schedule", "schedule my day", "time block my day", "plan today",
-    "organize my day", "organise my day",
-}
-
-def _is_planning_request(text: str) -> bool:
-    lower = text.lower()
-    return any(kw in lower for kw in _PLAN_TRIGGERS)
 
 
 def planner_page():
@@ -518,16 +548,9 @@ with st.sidebar:
         if st.form_submit_button("Send"):
             if user_input.strip():
                 st.session_state["chat_history"].append(f"You: {user_input.strip()}")
-                if _is_planning_request(user_input):
-                    with st.spinner("Building your plan…"):
-                        resp = _run(_PY, "backend/agents/planner_crew.py")
-                    if resp.returncode == 0:
-                        ai_reply = resp.stdout.strip() or "Plan generated — check the Daily Planner page to view it."
-                    else:
-                        ai_reply = f"Failed to generate plan: {(resp.stderr or resp.stdout)[:300]}"
-                else:
-                    provider = get_config("api_provider", "ollama", _SECRETS)
-                    resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)
-                    ai_reply = resp.stdout.strip()
+                with st.spinner("Thinking…"):
+                    resp = _run(_PY, "backend/agents/crew.py", "--ask", user_input.strip())
+                ai_reply = resp.stdout.strip() or f"Error: {resp.stderr.strip()[:300]}"
                 st.session_state["chat_history"].append(f"AI: {ai_reply}")
+                _save_chat_history(st.session_state["chat_history"])
                 st.rerun()

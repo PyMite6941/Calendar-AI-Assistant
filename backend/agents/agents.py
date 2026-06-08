@@ -164,6 +164,17 @@ def set_config(key: str, value: str) -> str:
         return json.dumps({"ok": False, "error": str(e)})
 
 
+@tool("generate_daily_plan")
+def generate_daily_plan(unused: str = "") -> str:
+    """Generate an optimised time-blocked daily plan for today based on calendar events and todos.
+    Saves the plan to storage and returns the plan text. Use when the user asks to plan or schedule their day."""
+    from backend.agents.planner_crew import run_planner
+    try:
+        return run_planner()
+    except Exception as exc:
+        return json.dumps({"ok": False, "error": str(exc)})
+
+
 # ── Google tools (subprocess — requires OAuth flow) ───────────────────────────
 
 @tool("get_google_calendar_events")
@@ -290,7 +301,7 @@ processing_agent = Agent(
         get_todos, add_todo, update_todo, delete_todo,
         get_google_calendar_events, add_google_calendar_event,
         update_google_calendar_event, delete_google_calendar_event,
-        set_config,
+        get_gmail_messages, set_config, generate_daily_plan,
     ],
 )
 

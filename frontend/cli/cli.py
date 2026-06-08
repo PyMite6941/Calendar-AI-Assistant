@@ -21,10 +21,17 @@ PROVIDERS = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
 
 console = Console()
 
-CALENDAR_PATH = PROJECT_ROOT / "backend/storage/calendar_events.json"
-TODOS_PATH    = PROJECT_ROOT / "backend/storage/todos.json"
-CONFIGS_PATH  = PROJECT_ROOT / "backend/storage/configs.toml"
-SECRETS_PATH  = PROJECT_ROOT / "backend/storage/secrets.toml"
+CALENDAR_PATH     = PROJECT_ROOT / "backend/storage/calendar_events.json"
+TODOS_PATH        = PROJECT_ROOT / "backend/storage/todos.json"
+CONFIGS_PATH      = PROJECT_ROOT / "backend/storage/configs.toml"
+SECRETS_PATH      = PROJECT_ROOT / "backend/storage/secrets.toml"
+CHAT_HISTORY_PATH = PROJECT_ROOT / "backend/storage/chat_history.json"
+
+_EVENT_COLORS = ["", "#7c3aed", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#ec4899"]
+_COLOR_NAMES  = {
+    "": "Default (purple)", "#7c3aed": "Purple", "#0ea5e9": "Blue",
+    "#10b981": "Green", "#f59e0b": "Amber", "#ef4444": "Red", "#ec4899": "Pink",
+}
 
 _EVENT_DEFAULTS = {
     "title": "", "start": "", "end": "",
@@ -76,16 +83,20 @@ def calendar_menu():
                 t.add_column("Title",       style="bold")
                 t.add_column("Start")
                 t.add_column("End")
+                t.add_column("Color",       style="dim")
                 t.add_column("Location",    style="dim")
                 t.add_column("Recurrence",  style="dim")
                 t.add_column("Reminder",    style="dim")
                 for i, e in enumerate(events):
                     reminder_str = f"{e['reminder']} min" if e.get("reminder") else "—"
+                    color_hex    = e.get("color") or ""
+                    color_name   = _COLOR_NAMES.get(color_hex, color_hex or "Default")
                     t.add_row(
                         str(i),
                         e.get("title", ""),
                         e.get("start", ""),
                         e.get("end", ""),
+                        color_name,
                         e.get("location", "") or "—",
                         e.get("recurrence", "none"),
                         reminder_str,
@@ -97,12 +108,14 @@ def calendar_menu():
                 if pick != "Back":
                     idx = int(pick.split(":")[0])
                     ev = events[idx]
+                    _c = ev.get("color") or ""
                     console.print(Panel(
                         f"[bold]Title:[/]       {ev.get('title','')}\n"
                         f"[bold]Start:[/]       {ev.get('start','')}\n"
                         f"[bold]End:[/]         {ev.get('end','')}\n"
                         f"[bold]Description:[/] {ev.get('description','') or '—'}\n"
                         f"[bold]Location:[/]    {ev.get('location','') or '—'}\n"
+                        f"[bold]Color:[/]       {_COLOR_NAMES.get(_c, _c or 'Default')}\n"
                         f"[bold]Recurrence:[/]  {ev.get('recurrence','none')}\n"
                         f"[bold]Reminder:[/]    {ev.get('reminder',0)} min before",
                         title=ev.get("title", "Event"),
@@ -115,6 +128,8 @@ def calendar_menu():
             end         = questionary.text("End (blank = same as start):").ask() or start
             description = questionary.text("Description (optional):").ask() or ""
             location    = questionary.text("Location (optional):").ask() or ""
+            color_name  = questionary.select("Color:", choices=list(_COLOR_NAMES.values())).ask()
+            color_hex   = next((k for k, v in _COLOR_NAMES.items() if v == color_name), "")
             recurrence  = questionary.select("Recurrence:", choices=["none","daily","weekly","monthly"]).ask()
             reminder    = questionary.text("Reminder minutes before (0 = off):").ask() or "0"
             events = get_events()
@@ -122,7 +137,7 @@ def calendar_menu():
                 **_EVENT_DEFAULTS,
                 "title": title, "start": start, "end": end,
                 "description": description, "location": location,
-                "reminder": int(reminder), "recurrence": recurrence,
+                "color": color_hex, "reminder": int(reminder), "recurrence": recurrence,
             })
             save_events(events)
             console.print("[green]Event added.[/]")
@@ -138,12 +153,18 @@ def calendar_menu():
                 continue
             idx = int(pick.split(":")[0])
             ev  = events[idx]
+            _cur_color_name = _COLOR_NAMES.get(ev.get("color", ""), "Default (purple)")
+            _new_color_name = questionary.select(
+                "Color:", choices=list(_COLOR_NAMES.values()),
+                default=_cur_color_name if _cur_color_name in _COLOR_NAMES.values() else "Default (purple)",
+            ).ask()
             patch = {
                 "title":       questionary.text("Title:",       default=ev["title"]).ask() or ev["title"],
                 "start":       questionary.text("Start:",       default=ev["start"]).ask() or ev["start"],
                 "end":         questionary.text("End:",         default=ev["end"]).ask()   or ev["end"],
                 "description": questionary.text("Description:", default=ev["description"]).ask() or "",
                 "location":    questionary.text("Location:",    default=ev["location"]).ask() or "",
+                "color":       next((k for k, v in _COLOR_NAMES.items() if v == _new_color_name), ""),
                 "reminder":    int(questionary.text("Reminder (min):", default=str(ev["reminder"])).ask() or "0"),
                 "recurrence":  _safe_select("Recurrence:", ["none","daily","weekly","monthly"], ev["recurrence"]),
             }
@@ -348,6 +369,7 @@ def settings_menu():
                 "Set API provider",
                 "Set AI model",
                 "Set API key",
+                "Reveal API key",
                 "Google account",
                 "Clear cache",
                 "Back",
@@ -355,10 +377,12 @@ def settings_menu():
         ).ask()
 
         if choice == "View settings":
-            provider = get_secret_top("api_provider", "Ollama")
-            model    = get_secret_top(f"{str(provider).lower()}_model", "not set")
-            wh_s = get_config("working_hours_start", "09:00")
-            wh_e = get_config("working_hours_end",   "18:00")
+            provider  = get_secret_top("api_provider", "Ollama")
+            model     = get_secret_top(f"{str(provider).lower()}_model", "not set")
+            wh_s      = get_config("working_hours_start", "09:00")
+            wh_e      = get_config("working_hours_end",   "18:00")
+            saved_key = get_secret_top("api_key") or ""
+            key_display = "●" * min(len(saved_key), 40) if saved_key else "not set"
             console.print(Panel(
                 f"[bold]Name:[/]                     {get_config('user_name', 'not set')}\n"
                 f"[bold]Timezone:[/]                 {get_config('timezone', 'not set (uses system time)')}\n"
@@ -367,7 +391,7 @@ def settings_menu():
                 f"[bold]Notification preferences:[/]  {get_config('notification_preferences', 'Email, SMS')}\n"
                 f"[bold]API provider:[/]             {provider}\n"
                 f"[bold]AI model:[/]                 {model}\n"
-                f"[bold]API key:[/]                  {'set' if get_secret_top('api_key') else 'not set'}",
+                f"[bold]API key:[/]                  {key_display}",
                 title="Settings",
             ))
 
@@ -441,6 +465,13 @@ def settings_menu():
                 set_secret_top("api_key", key)
                 console.print("[green]Saved.[/]")
 
+        elif choice == "Reveal API key":
+            saved_key = get_secret_top("api_key") or ""
+            if saved_key:
+                console.print(Panel(f"[bold]API Key:[/] {saved_key}", title="API Key", border_style="yellow"))
+            else:
+                console.print("[yellow]No API key set.[/]")
+
         elif choice == "Google account":
             google_menu()
 
@@ -456,16 +487,6 @@ def settings_menu():
 
 
 # ── daily planner ─────────────────────────────────────────────────────────────
-
-_PLAN_TRIGGERS = {
-    "plan my day", "plan my schedule", "daily plan", "optimize my schedule",
-    "optimise my schedule", "schedule my day", "time block my day", "plan today",
-    "organize my day", "organise my day",
-}
-
-def _is_planning_request(text: str) -> bool:
-    lower = text.lower()
-    return any(kw in lower for kw in _PLAN_TRIGGERS)
 
 
 def planner_menu():
@@ -511,38 +532,40 @@ def planner_menu():
 
 # ── chat ──────────────────────────────────────────────────────────────────────
 
+def _load_chat_history() -> list:
+    try:
+        return json.loads(CHAT_HISTORY_PATH.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _save_chat_history(history: list) -> None:
+    CHAT_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CHAT_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+
+
 def chat_menu():
     console.print(Panel(
         "Tell me to add events or todos, ask about your schedule, or just chat.\n"
         "Type [bold]exit[/bold] to go back.",
         title="AI Chat",
     ))
-    history = []
+    history = _load_chat_history()
+    if history:
+        console.print(f"[dim]Resuming {len(history)} message(s) from previous session.[/]")
     while True:
         user_input = questionary.text("You:").ask()
         if not user_input or user_input.lower() == "exit":
             break
 
         history.append(f"You: {user_input}")
-        if _is_planning_request(user_input):
-            console.print("[cyan]Building your plan...[/]")
-            result = subprocess.run(
-                [sys.executable, "backend/agents/planner_crew.py"],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-            )
-            if result.returncode == 0:
-                response = result.stdout.strip() or "Plan generated — open Daily Planner to view it."
-            else:
-                response = f"Failed to generate plan: {(result.stderr or result.stdout)[:300]}"
-        else:
-            provider = str(get_secret_top("api_provider", "ollama")).lower()
-            result = subprocess.run(
-                [sys.executable, "backend/tools/connect_to_ai.py",
-                 "--ask", user_input, "--provider", provider],
-                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-            )
-            response = result.stdout.strip() or result.stderr.strip() or "No response."
+        console.print("[cyan]Thinking...[/]")
+        result = subprocess.run(
+            [sys.executable, "backend/agents/crew.py", "--ask", user_input],
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+        )
+        response = result.stdout.strip() or result.stderr.strip() or "No response."
         history.append(f"AI: {response}")
+        _save_chat_history(history)
         console.print(f"[bold cyan]AI:[/] {response}")
 
 

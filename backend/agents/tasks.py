@@ -24,17 +24,19 @@ Analyse the following user request:
 
 {user_request}
 
-Identify the intent (add event, add todo, query schedule, update item, delete item,
-update user config/preference, general chat).
+Identify the intent (add_event, add_todo, query_schedule, update_item, delete_item,
+set_config, query_email, plan_day, general_chat).
 Extract all relevant details: dates, times, titles, locations, priorities, due dates, recurrence.
 Convert any relative dates (e.g. "tomorrow", "next Monday", "in four days") to absolute dates
 based on today's date and the timezone above.
 If the request is about updating a user setting or preference (name, timezone, working hours,
 notification preferences), identify it as a "set_config" intent and extract the key and value.
+If the request involves reading emails, searching inbox, or checking messages, identify it as "query_email".
+If the request asks to plan the day, schedule the day, time-block today, or optimise the schedule, identify it as "plan_day".
 """,
     expected_output=(
         "A structured breakdown with: (1) intent type "
-        "(add/update/delete/query/chat/set_config), "
+        "(add_event/add_todo/update_item/delete_item/query_schedule/query_email/plan_day/set_config/general_chat), "
         "(2) entity fields (title, start, end, location, priority, due_date, recurrence, "
         "config_key, config_value, etc.), "
         "(3) all relative dates converted to absolute YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS, "
@@ -55,11 +57,12 @@ that are relevant to fulfilling the request.
 - Use get_calendar_events to fetch local events.
 - Use get_google_calendar_events to fetch events from Google Calendar (returns [] if not connected).
 - Use get_todos to fetch todo items.
-- Use get_gmail_messages if the request involves email context.
+- Use get_gmail_messages if the intent is query_email.
 - Use get_config to read user preferences if needed.
 Combine both local and Google Calendar results when answering schedule queries.
 Only retrieve what is needed — do not dump everything if the request is narrow.
 For set_config intents, skip data retrieval and pass through the key/value to the next step.
+For plan_day intents, skip data retrieval — the generate_daily_plan tool reads its own data.
 """,
     expected_output=(
         "The retrieved events and/or todos as structured data, with each item's index (for local items) "
@@ -89,6 +92,8 @@ Using the intent analysis and the retrieved data from the previous steps, carry 
 - If deleting a Google Calendar event: call delete_google_calendar_event with the event 'id'.
 - If updating a user preference (set_config intent): call set_config with the key and value.
 - If answering a question: compose a clear, concise answer from the retrieved data.
+- If the intent is query_email: use the retrieved Gmail messages to answer the user's question about their inbox.
+- If the intent is plan_day: call generate_daily_plan. Return the plan text to the user.
 
 Always use the resolved absolute dates from the analysis step.
 Check that tool responses contain "ok": true before declaring success.
