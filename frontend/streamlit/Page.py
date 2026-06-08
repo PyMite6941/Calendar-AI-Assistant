@@ -2,6 +2,8 @@ import json
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -548,9 +550,44 @@ with st.sidebar:
         if st.form_submit_button("Send"):
             if user_input.strip():
                 st.session_state["chat_history"].append(f"You: {user_input.strip()}")
-                with st.spinner("Thinking…"):
-                    resp = _run(_PY, "backend/tools/scrape_content.py", "--start", "--request", user_input.strip())
-                ai_reply = resp.stdout.strip() or f"Error: {resp.stderr.strip()[:300]}"
+
+                from backend.agents.crew import run_calendar_assistant
+
+                _result: dict = {}
+                _req = user_input.strip()
+
+                def _worker():
+                    try:
+                        _result["reply"] = run_calendar_assistant(_req)
+                    except Exception as exc:
+                        _result["reply"] = f"Error: {exc}"
+
+                _t = threading.Thread(target=_worker, daemon=True)
+                _t.start()
+
+                _STEPS = [
+                    (0,  "🔍 Analyzing your request…"),
+                    (8,  "📅 Retrieving calendar data…"),
+                    (20, "⚡ Processing your request…"),
+                    (38, "✅ Verifying response…"),
+                ]
+                _step = 0
+                _t0 = time.time()
+
+                with st.status("Thinking…", expanded=True) as _status:
+                    while _t.is_alive():
+                        _elapsed = time.time() - _t0
+                        while _step < len(_STEPS) and _elapsed >= _STEPS[_step][0]:
+                            _status.write(_STEPS[_step][1])
+                            _step += 1
+                        time.sleep(0.25)
+                    while _step < len(_STEPS):
+                        _status.write(_STEPS[_step][1])
+                        _step += 1
+                    _status.update(label="Done!", state="complete")
+
+                _t.join()
+                ai_reply = _result.get("reply") or "Error: no response"
                 st.session_state["chat_history"].append(f"AI: {ai_reply}")
                 _save_chat_history(st.session_state["chat_history"])
                 st.rerun()
