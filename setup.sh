@@ -29,7 +29,12 @@ else
     echo "Unsupported operating system. Please activate the virtual environment manually."
     exit 1
 fi
+pip install -r requirements.txt
 echo "What is your name?"
 read $name
+python backend/tools/config_editing.py --set user_name "$name"
+echo "What is your timezone? (e.g. 'America/New_York')"
+read $timezone
+python backend/tools/config_editing.py --set timezone "$timezone"
 echo "Setup complete! Activating run.py ..."
 python run.py
