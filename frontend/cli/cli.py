@@ -560,7 +560,7 @@ def chat_menu():
         history.append(f"You: {user_input}")
         console.print("[cyan]Thinking...[/]")
         result = subprocess.run(
-            [sys.executable, "backend/agents/crew.py", "--ask", user_input],
+            [sys.executable, "backend/tools/scrape_content.py", "--start", "--request", user_input],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
         response = result.stdout.strip() or result.stderr.strip() or "No response."

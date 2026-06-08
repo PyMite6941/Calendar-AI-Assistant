@@ -80,11 +80,3 @@ def run_calendar_assistant(user_request: str) -> str:
     ctx = _build_kickoff_context()
     result = calendar_crew.kickoff(inputs={"user_request": user_request, **ctx})
     return str(result)
-
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ask", required=True, help="User request to process through the crew")
-    args = parser.parse_args()
-    print(run_calendar_assistant(args.ask))

@@ -549,7 +549,7 @@ with st.sidebar:
             if user_input.strip():
                 st.session_state["chat_history"].append(f"You: {user_input.strip()}")
                 with st.spinner("Thinking…"):
-                    resp = _run(_PY, "backend/agents/crew.py", "--ask", user_input.strip())
+                    resp = _run(_PY, "backend/tools/scrape_content.py", "--start", "--request", user_input.strip())
                 ai_reply = resp.stdout.strip() or f"Error: {resp.stderr.strip()[:300]}"
                 st.session_state["chat_history"].append(f"AI: {ai_reply}")
                 _save_chat_history(st.session_state["chat_history"])
