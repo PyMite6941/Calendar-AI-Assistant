@@ -143,11 +143,12 @@ def _event_detail_dialog(index: int, event: dict):
     new_end    = col_e.text_input("End   (YYYY-MM-DDTHH:MM:SS)", value=event.get("end",   ""))
     new_desc   = st.text_input("Description", value=event.get("description", ""))
     new_loc    = st.text_input("Location",    value=event.get("location", ""))
-    col_r, col_rec = st.columns(2)
+    col_r, col_rec, col_color = st.columns(3)
     new_reminder   = col_r.number_input("Reminder (min)", min_value=0, value=int(event.get("reminder") or 0))
     _rec_opts      = ["none", "daily", "weekly", "monthly"]
     _rec_idx       = _rec_opts.index(event.get("recurrence", "none")) if event.get("recurrence", "none") in _rec_opts else 0
     new_recurrence = col_rec.selectbox("Recurrence", _rec_opts, index=_rec_idx)
+    new_color      = col_color.color_picker("Event color", value=event.get("color") or "#7c3aed")
 
     col_save, col_del, _ = st.columns([2, 2, 4])
     if col_save.button("Save", type="primary", use_container_width=True):
@@ -157,6 +158,7 @@ def _event_detail_dialog(index: int, event: dict):
             "end":         new_end.strip(),
             "description": new_desc.strip(),
             "location":    new_loc.strip(),
+            "color":       new_color,
             "reminder":    int(new_reminder),
             "recurrence":  new_recurrence,
         }

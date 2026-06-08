@@ -1,6 +1,5 @@
 import argparse
 import json
-import subprocess
 import sys
 import tomllib
 from datetime import datetime
@@ -13,8 +12,14 @@ from rich.console import Console
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
-from backend.tools.calendar_events import get_events as _get_events
-from backend.tools.todo_stuff import get_todos as _get_todos_direct
+from backend.tools.calendar_events import (
+    get_events as _get_events, add_event as _add_event,
+    update_event as _update_event, delete_event as _delete_event,
+)
+from backend.tools.todo_stuff import (
+    get_todos as _get_todos_direct, add_todo as _add_todo,
+    update_todo as _update_todo, delete_todo as _delete_todo,
+)
 
 console = Console()
 parser = argparse.ArgumentParser()
@@ -110,8 +115,9 @@ def _build_context() -> str:
 
     events = _get_events()
     if events:
-        upcoming = [e for e in events if e.get("start", "") >= today_str]
-        display  = upcoming[:10] if upcoming else events[:5]
+        indexed  = [{**e, "_index": i} for i, e in enumerate(events)]
+        upcoming = [e for e in indexed if e.get("start", "") >= today_str]
+        display  = upcoming[:10] if upcoming else indexed[:5]
         lines.append(
             f"\nCurrent calendar events ({len(events)} total, showing up to 10 upcoming):\n"
             + json.dumps(display, indent=2)
@@ -121,7 +127,8 @@ def _build_context() -> str:
 
     todos = _get_todos_direct()
     if todos:
-        active = [t for t in todos if t.get("status", "") != "done"][:10]
+        indexed = [{**t, "_index": i} for i, t in enumerate(todos)]
+        active  = [t for t in indexed if t.get("status", "") != "done"][:10]
         lines.append(
             f"\nCurrent todos ({len(todos)} total, showing up to 10 non-done):\n"
             + json.dumps(active, indent=2)
@@ -141,13 +148,25 @@ SYSTEM_PROMPT = f"""You are a Calendar and Todo AI Assistant.
 When the user wants to add a todo item, respond with exactly:
 {{"action": "add_todo", "title": "...", "description": "...", "priority": "low|medium|high", "due_date": "YYYY-MM-DD or empty", "status": "pending|in-progress|done", "tags": ["tag1"], "notes": "..."}}
 
+When the user wants to update an existing todo, respond with exactly (include only the fields to change):
+{{"action": "update_todo", "index": <_index from context>, "title": "...", "status": "...", ...}}
+
+When the user wants to delete a todo, respond with exactly:
+{{"action": "delete_todo", "index": <_index from context>}}
+
 When the user wants to add a calendar event, respond with exactly:
 {{"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "...", "location": "...", "color": "", "reminder": 15, "recurrence": "none|daily|weekly|monthly"}}
+
+When the user wants to update an existing calendar event, respond with exactly (include only the fields to change):
+{{"action": "update_event", "index": <_index from context>, "title": "...", "start": "...", ...}}
+
+When the user wants to delete a calendar event, respond with exactly:
+{{"action": "delete_event", "index": <_index from context>}}
 
 For all other messages, respond with exactly:
 {{"action": "chat", "message": "..."}}
 
-Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields."""
+Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields. Use _index from the context to identify existing items."""
 
 try:
     prior_messages = []
@@ -178,14 +197,25 @@ try:
             due_date = str(data.get("due_date") or "")
             status   = str(data.get("status") or "pending")
             raw_tags = data.get("tags")
-            tags     = json.dumps(raw_tags if isinstance(raw_tags, list) else [])
+            tags     = raw_tags if isinstance(raw_tags, list) else []
             notes    = str(data.get("notes") or "")
-            subprocess.run(
-                [sys.executable, "backend/tools/todo_stuff.py", "--add",
-                 title, desc, priority, due_date, status, tags, notes],
-                cwd=str(_ROOT), capture_output=True,
-            )
+            _add_todo(title, desc, priority, due_date, status, tags, notes)
             print(f"Done — added todo: {title}")
+        elif action == "update_todo":
+            index = int(data.get("index", -1))
+            patch = {k: v for k, v in data.items() if k not in ("action", "index", "_index")}
+            if index >= 0 and patch:
+                result = _update_todo(index, patch)
+                print(f"Done — updated todo: {result.get('todo', {}).get('title', '')}")
+            else:
+                print("Could not update todo — missing index or no fields to change.")
+        elif action == "delete_todo":
+            index = int(data.get("index", -1))
+            if index >= 0:
+                result = _delete_todo(index)
+                print(f"Done — deleted todo: {result.get('todo', {}).get('title', '')}")
+            else:
+                print("Could not delete todo — missing index.")
         elif action == "add_event":
             title       = str(data.get("title") or "")
             start       = str(data.get("start") or "")
@@ -193,14 +223,25 @@ try:
             description = str(data.get("description") or "")
             location    = str(data.get("location") or "")
             color       = str(data.get("color") or "")
-            reminder    = str(data.get("reminder") or "0")
+            reminder    = int(data.get("reminder") or 0)
             recurrence  = str(data.get("recurrence") or "none")
-            subprocess.run(
-                [sys.executable, "backend/tools/calendar_events.py", "--add",
-                 title, start, end, description, location, color, reminder, recurrence],
-                cwd=str(_ROOT), capture_output=True,
-            )
+            _add_event(title, start, end, description, location, color, reminder, recurrence)
             print(f"Done — added event: {title}")
+        elif action == "update_event":
+            index = int(data.get("index", -1))
+            patch = {k: v for k, v in data.items() if k not in ("action", "index", "_index")}
+            if index >= 0 and patch:
+                result = _update_event(index, patch)
+                print(f"Done — updated event: {result.get('event', {}).get('title', '')}")
+            else:
+                print("Could not update event — missing index or no fields to change.")
+        elif action == "delete_event":
+            index = int(data.get("index", -1))
+            if index >= 0:
+                result = _delete_event(index)
+                print(f"Done — deleted event: {result.get('event', {}).get('title', '')}")
+            else:
+                print("Could not delete event — missing index.")
         else:
             print(data.get("message", raw))
     except json.JSONDecodeError:

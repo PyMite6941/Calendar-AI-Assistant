@@ -108,6 +108,7 @@ def calendar_menu():
                         f"[bold]End:[/]         {ev.get('end','')}\n"
                         f"[bold]Description:[/] {ev.get('description','') or '—'}\n"
                         f"[bold]Location:[/]    {ev.get('location','') or '—'}\n"
+                        f"[bold]Color:[/]       {ev.get('color','') or '—'}\n"
                         f"[bold]Recurrence:[/]  {ev.get('recurrence','none')}\n"
                         f"[bold]Reminder:[/]    {ev.get('reminder',0)} min before",
                         title=ev.get("title", "Event"),
@@ -122,7 +123,8 @@ def calendar_menu():
             location    = questionary.text("Location (optional):").ask() or ""
             recurrence  = questionary.select("Recurrence:", choices=["none","daily","weekly","monthly"]).ask()
             reminder    = questionary.text("Reminder minutes before (0 = off):").ask() or "0"
-            _cal_add(title, start, end, description, location, "", int(reminder), recurrence)
+            color       = questionary.text("Color (hex, e.g. #3b82f6, or blank for default):").ask() or ""
+            _cal_add(title, start, end, description, location, color, int(reminder), recurrence)
             console.print("[green]Event added.[/]")
 
         elif choice == "Edit event":
@@ -142,6 +144,7 @@ def calendar_menu():
                 "end":         questionary.text("End:",         default=ev["end"]).ask()   or ev["end"],
                 "description": questionary.text("Description:", default=ev["description"]).ask() or "",
                 "location":    questionary.text("Location:",    default=ev["location"]).ask() or "",
+                "color":       questionary.text("Color (hex, blank = default):", default=ev.get("color", "")).ask() or "",
                 "reminder":    int(questionary.text("Reminder (min):", default=str(ev["reminder"])).ask() or "0"),
                 "recurrence":  _safe_select("Recurrence:", ["none","daily","weekly","monthly"], ev["recurrence"]),
             }
@@ -237,8 +240,10 @@ def todo_menu():
             desc     = questionary.text("Description:").ask() or ""
             priority = questionary.select("Priority:", choices=["low","medium","high"]).ask()
             due_date = questionary.text("Due date (YYYY-MM-DD, or blank):").ask() or ""
+            tags_raw = questionary.text("Tags (comma-separated, or blank):").ask() or ""
+            tags     = [t.strip() for t in tags_raw.split(",") if t.strip()]
             notes    = questionary.text("Notes (optional):").ask() or ""
-            _todo_add(title, desc, priority, due_date, notes=notes)
+            _todo_add(title, desc, priority, due_date, tags=tags, notes=notes)
             console.print("[green]Todo added.[/]")
 
         elif choice == "Edit todo":
@@ -255,12 +260,15 @@ def todo_menu():
                 continue
             idx  = int(pick.split(":")[0])
             todo = todos[idx]
+            _cur_tags = ", ".join(todo.get("tags", []))
+            tags_raw  = questionary.text("Tags (comma-separated):", default=_cur_tags).ask() or ""
             patch = {
                 "title":       questionary.text("Title:",       default=todo["title"]).ask()       or todo["title"],
                 "description": questionary.text("Description:", default=todo["description"]).ask() or "",
                 "priority":    _safe_select("Priority:", ["low","medium","high"], todo["priority"]),
                 "status":      _safe_select("Status:", ["pending","in-progress","done"], todo["status"]),
                 "due_date":    questionary.text("Due date:", default=todo["due_date"]).ask() or "",
+                "tags":        [t.strip() for t in tags_raw.split(",") if t.strip()],
                 "notes":       questionary.text("Notes:",    default=todo["notes"]).ask() or "",
             }
             _todo_update(idx, patch)

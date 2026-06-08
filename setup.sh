@@ -55,5 +55,11 @@ if [ -n "$name" ]; then
     python backend/tools/config_editing.py --key user_name --set "$name"
 fi
 
+printf "Your timezone (IANA format, e.g. America/New_York, Asia/Bangkok) [blank to skip]: "
+read timezone
+if [ -n "$timezone" ]; then
+    python backend/tools/config_editing.py --key timezone --set "$timezone"
+fi
+
 echo "Setup complete! Starting the app..."
 python run.py
