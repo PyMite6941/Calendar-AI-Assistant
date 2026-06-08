@@ -52,7 +52,7 @@ def _build_llm() -> LLM:
 
     _default_models = {
         "openai":  "gpt-4o-mini",
-        "groq":    "llama-3.1-8b-instant",
+        "groq":    "llama-3.3-70b-versatile",
         "gemini":  "gemini-2.0-flash",
         "mistral": "mistral-small-latest",
         "ollama":  "llama3.2",
@@ -63,7 +63,7 @@ def _build_llm() -> LLM:
         model = _get_ollama_model(model)
         return LLM(model=f"ollama/{model}", base_url="http://localhost:11434")
     elif provider == "groq":
-        return LLM(model=f"groq/{model}", api_key=api_key)
+        return LLM(model=model, api_key=api_key, base_url="https://api.groq.com/openai/v1")
     elif provider == "gemini":
         return LLM(model=f"gemini/{model}", api_key=api_key)
     elif provider == "mistral":
@@ -78,7 +78,7 @@ _llm = _build_llm()
 # ── local tools (direct import — no subprocess) ───────────────────────────────
 
 @tool("get_calendar_events")
-def get_calendar_events() -> str:
+def get_calendar_events(unused: str = "") -> str:
     """Return all local calendar events as a JSON array."""
     return json.dumps(get_events())
 
@@ -110,7 +110,7 @@ def delete_calendar_event(index: int) -> str:
 
 
 @tool("get_todos")
-def get_todos() -> str:
+def get_todos(unused: str = "") -> str:
     """Return all todo items as a JSON array."""
     return json.dumps(_get_todos())
 
@@ -167,7 +167,7 @@ def set_config(key: str, value: str) -> str:
 # ── Google tools (subprocess — requires OAuth flow) ───────────────────────────
 
 @tool("get_google_calendar_events")
-def get_google_calendar_events() -> str:
+def get_google_calendar_events(unused: str = "") -> str:
     """Return upcoming Google Calendar events as a JSON array (includes 'id' field for each event).
     Returns [] if Google is not connected. Use the 'id' field when calling update or delete."""
     result = subprocess.run(
@@ -219,7 +219,7 @@ def delete_google_calendar_event(event_id: str) -> str:
 
 
 @tool("get_gmail_messages")
-def get_gmail_messages() -> str:
+def get_gmail_messages(unused: str = "") -> str:
     """Return recent Gmail inbox messages as a JSON array (subject, from, date, snippet).
     Returns [] if Google is not connected."""
     result = subprocess.run(
