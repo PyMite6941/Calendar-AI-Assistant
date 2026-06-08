@@ -84,12 +84,12 @@ def get_calendar_events(unused: str = "") -> str:
 
 
 @tool("add_calendar_event")
-def add_calendar_event(title: str, start: str, end: str,
+def add_calendar_event(name: str, start: str, end: str,
                        description: str = "", location: str = "",
                        reminder: int = 0, recurrence: str = "none") -> str:
-    """Add a local calendar event. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
+    """Add a local calendar event. name: event title. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
     recurrence: none | daily | weekly | monthly. Returns JSON confirmation."""
-    return json.dumps(add_event(title, start, end, description, location, "", reminder, recurrence))
+    return json.dumps(add_event(name, start, end, description, location, "", reminder, recurrence))
 
 
 @tool("update_calendar_event")
@@ -116,11 +116,11 @@ def get_todos(unused: str = "") -> str:
 
 
 @tool("add_todo")
-def add_todo(title: str, description: str = "", priority: str = "medium",
+def add_todo(name: str, description: str = "", priority: str = "medium",
              due_date: str = "", status: str = "pending", notes: str = "") -> str:
-    """Add a todo item. priority: low | medium | high. status: pending | in-progress | done.
+    """Add a todo item. name: task title. priority: low | medium | high. status: pending | in-progress | done.
     Returns JSON confirmation."""
-    return json.dumps(_add_todo(title, description, priority, due_date, status, notes=notes))
+    return json.dumps(_add_todo(name, description, priority, due_date, status, notes=notes))
 
 
 @tool("update_todo")
@@ -141,10 +141,11 @@ def delete_todo(index: int) -> str:
 
 
 @tool("get_config")
-def get_config(key: str, default: str = "") -> str:
+def get_config(key: str, fallback: str = "") -> str:
     """Read a user config value by key (e.g. user_name, timezone, calendar_view,
-    working_hours_start, working_hours_end, notification_preferences)."""
-    return str(get_config_value(key, default))
+    working_hours_start, working_hours_end, notification_preferences).
+    fallback: value to return if key is not set."""
+    return str(get_config_value(key, fallback))
 
 
 @tool("set_config")
@@ -191,12 +192,12 @@ def get_google_calendar_events(unused: str = "") -> str:
 
 
 @tool("add_google_calendar_event")
-def add_google_calendar_event(title: str, start: str, end: str,
+def add_google_calendar_event(name: str, start: str, end: str,
                                description: str = "", location: str = "") -> str:
-    """Add an event to Google Calendar. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
+    """Add an event to Google Calendar. name: event title. start/end: ISO 8601 (YYYY-MM-DDTHH:MM:SS).
     Returns JSON with 'ok' and the new event 'id', or an error message if not connected."""
     event_json = json.dumps({
-        "title": title, "start": start, "end": end,
+        "title": name, "start": start, "end": end,
         "description": description, "location": location,
     })
     result = subprocess.run(
