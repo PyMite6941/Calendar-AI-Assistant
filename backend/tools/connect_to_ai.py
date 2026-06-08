@@ -11,13 +11,17 @@ import urllib.request
 from openai import OpenAI
 from rich.console import Console
 
+_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_ROOT))
+from backend.tools.calendar_events import get_events as _get_events
+from backend.tools.todo_stuff import get_todos as _get_todos_direct
+
 console = Console()
 parser = argparse.ArgumentParser()
 parser.add_argument("--ask",      metavar="QUESTION", required=True, help="Question to ask the AI")
 parser.add_argument("--provider", default=None, help="Override provider (groq, gemini, mistral, ollama)")
 args = parser.parse_args()
 
-_ROOT         = Path(__file__).resolve().parents[2]
 _SECRETS_PATH = _ROOT / "backend/storage/secrets.toml"
 _CONFIGS_PATH = _ROOT / "backend/storage/configs.toml"
 
@@ -78,10 +82,13 @@ def _build_context() -> str:
     except ZoneInfoNotFoundError:
         tz = None
     now = datetime.now(tz) if tz else datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
 
     lines = [
         f"Today is {now.strftime('%A, %B %d, %Y')} and the current time is {now.strftime('%H:%M')}.",
     ]
+    if tz_name:
+        lines.append(f"The user's timezone is {tz_name}.")
 
     user_name = configs.get("user_name", "").strip()
     if user_name:
@@ -91,9 +98,35 @@ def _build_context() -> str:
     if notif:
         lines.append(f"The user's notification preferences are: {notif}.")
 
+    wh_start = configs.get("working_hours_start", "").strip()
+    wh_end   = configs.get("working_hours_end", "").strip()
+    if wh_start and wh_end:
+        lines.append(f"The user's working hours are {wh_start} to {wh_end}.")
+
     cal_view = configs.get("calendar_view", "").strip()
     if cal_view:
         lines.append(f"The user prefers the {cal_view} calendar view.")
+
+    events = _get_events()
+    if events:
+        upcoming = [e for e in events if e.get("start", "") >= today_str]
+        display  = upcoming[:10] if upcoming else events[:5]
+        lines.append(
+            f"\nCurrent calendar events ({len(events)} total, showing up to 10 upcoming):\n"
+            + json.dumps(display, indent=2)
+        )
+    else:
+        lines.append("\nThe user has no calendar events yet.")
+
+    todos = _get_todos_direct()
+    if todos:
+        active = [t for t in todos if t.get("status", "") != "done"][:10]
+        lines.append(
+            f"\nCurrent todos ({len(todos)} total, showing up to 10 non-done):\n"
+            + json.dumps(active, indent=2)
+        )
+    else:
+        lines.append("\nThe user has no todos yet.")
 
     return "\n".join(lines)
 

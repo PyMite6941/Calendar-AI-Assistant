@@ -12,6 +12,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.auth.add_google_oauth import connect_button, get_creds
+from backend.tools.calendar_events import (
+    get_events as _lib_get_events,
+    update_event as _lib_update_event,
+    delete_event as _lib_delete_event,
+)
+from backend.tools.todo_stuff import (
+    get_todos as _lib_get_todos,
+    update_todo as _lib_update_todo,
+    delete_todo as _lib_delete_todo,
+)
+from backend.tools.config_editing import get_config_value as _lib_get_cfg, set_config_value as _lib_set_cfg
 
 _SECRETS = "backend/storage/secrets.toml"
 _PRIORITY_COLORS = {"high": "🔴", "medium": "🟡", "low": "🟢"}
@@ -24,25 +35,18 @@ def _run(*cmd):
     return subprocess.run(list(cmd), capture_output=True, text=True, cwd=str(PROJECT_ROOT))
 
 def get_calendar_events():
-    try:
-        return json.loads(_run(_PY, "backend/tools/calendar_events.py", "--get").stdout or "[]")
-    except json.JSONDecodeError:
-        return []
+    return _lib_get_events()
 
 def get_config(key, default=None, path=None):
-    cmd = [_PY, "backend/tools/config_editing.py", "--key", key, "--default", str(default)]
-    if path:
-        cmd += ["--path", path]
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT)).stdout.strip()
+    p = (PROJECT_ROOT / path) if path else (PROJECT_ROOT / "backend/storage/configs.toml")
+    val = _lib_get_cfg(key, default, p)
+    return str(val) if val is not None else str(default or "")
 
 def set_config(key, value, path="backend/storage/configs.toml"):
-    _run(_PY, "backend/tools/config_editing.py", "--key", key, "--set", str(value), "--path", path)
+    _lib_set_cfg(key, str(value), PROJECT_ROOT / path)
 
 def get_todos():
-    try:
-        return json.loads(_run(_PY, "backend/tools/todo_stuff.py", "--get").stdout or "[]")
-    except json.JSONDecodeError:
-        return []
+    return _lib_get_todos()
 
 
 # ── page setup ────────────────────────────────────────────────────────────────
@@ -105,10 +109,10 @@ def _todo_detail_dialog(index: int, todo: dict):
             "tags":        [t.strip() for t in new_tags_raw.split(",") if t.strip()],
             "notes":       new_notes.strip(),
         }
-        _run(_PY, "backend/tools/todo_stuff.py", "--update", str(index), "--json", json.dumps(patch))
+        _lib_update_todo(index, patch)
         st.rerun()
     if col_del.button("Delete", type="secondary", use_container_width=True):
-        _run(_PY, "backend/tools/todo_stuff.py", "--delete", str(index))
+        _lib_delete_todo(index)
         st.rerun()
 
 
@@ -155,10 +159,10 @@ def _event_detail_dialog(index: int, event: dict):
             "reminder":    int(new_reminder),
             "recurrence":  new_recurrence,
         }
-        _run(_PY, "backend/tools/calendar_events.py", "--update", str(index), "--json", json.dumps(patch))
+        _lib_update_event(index, patch)
         st.rerun()
     if col_del.button("Delete", type="secondary", use_container_width=True):
-        _run(_PY, "backend/tools/calendar_events.py", "--delete", str(index))
+        _lib_delete_event(index)
         st.rerun()
 
 
@@ -289,6 +293,19 @@ def settings_page():
         "Notification Preferences",
         value=get_config("notification_preferences", "Email, SMS"),
     )
+    col_wh_s, col_wh_e = st.columns(2)
+    working_hours_start = col_wh_s.text_input(
+        "Working Hours Start",
+        value=get_config("working_hours_start", "09:00"),
+        placeholder="HH:MM",
+        help="Used by the Daily Planner to know when your day starts.",
+    )
+    working_hours_end = col_wh_e.text_input(
+        "Working Hours End",
+        value=get_config("working_hours_end", "18:00"),
+        placeholder="HH:MM",
+        help="Used by the Daily Planner to know when your day ends.",
+    )
     _provider_options = ["OpenAI", "Groq", "Gemini", "Mistral", "Ollama"]
     _saved_provider   = get_config("api_provider", "OpenAI", _SECRETS)
     _provider_index   = next((i for i, v in enumerate(_provider_options) if v.lower() == _saved_provider.lower()), 0)
@@ -309,6 +326,8 @@ def settings_page():
         set_config("timezone",                   timezone.strip())
         set_config("calendar_view",              calendar_view)
         set_config("notification_preferences",   notification_preferences)
+        set_config("working_hours_start",        working_hours_start.strip())
+        set_config("working_hours_end",          working_hours_end.strip())
         st.success("Preferences saved.")
 
     st.divider()
@@ -317,7 +336,11 @@ def settings_page():
 
     st.divider()
     if st.button("Clear Cache"):
-        removed = sum(1 for d in PROJECT_ROOT.rglob("__pycache__") if d.exists() and not shutil.rmtree(d))
+        removed = 0
+        for d in PROJECT_ROOT.rglob("__pycache__"):
+            if d.exists():
+                shutil.rmtree(d)
+                removed += 1
         st.success(f"Cache cleared — {removed} folder(s) removed.")
 
 
@@ -498,7 +521,10 @@ with st.sidebar:
                 if _is_planning_request(user_input):
                     with st.spinner("Building your plan…"):
                         resp = _run(_PY, "backend/agents/planner_crew.py")
-                    ai_reply = resp.stdout.strip() or "Your daily plan has been generated — check the Daily Planner page."
+                    if resp.returncode == 0:
+                        ai_reply = resp.stdout.strip() or "Plan generated — check the Daily Planner page to view it."
+                    else:
+                        ai_reply = f"Failed to generate plan: {(resp.stderr or resp.stdout)[:300]}"
                 else:
                     provider = get_config("api_provider", "ollama", _SECRETS)
                     resp = _run(_PY, "backend/tools/connect_to_ai.py", "--ask", user_input.strip(), "--provider", provider)
