@@ -260,16 +260,22 @@ def todo_menu():
                 continue
             idx  = int(pick.split(":")[0])
             todo = todos[idx]
+            new_title = questionary.text("Title:",       default=todo["title"]).ask()       or todo["title"]
+            new_desc  = questionary.text("Description:", default=todo["description"]).ask() or ""
+            new_pri   = _safe_select("Priority:", ["low","medium","high"], todo["priority"])
+            new_stat  = _safe_select("Status:", ["pending","in-progress","done"], todo["status"])
+            new_due   = questionary.text("Due date:", default=todo["due_date"]).ask() or ""
             _cur_tags = ", ".join(todo.get("tags", []))
             tags_raw  = questionary.text("Tags (comma-separated):", default=_cur_tags).ask() or ""
+            new_notes = questionary.text("Notes:", default=todo["notes"]).ask() or ""
             patch = {
-                "title":       questionary.text("Title:",       default=todo["title"]).ask()       or todo["title"],
-                "description": questionary.text("Description:", default=todo["description"]).ask() or "",
-                "priority":    _safe_select("Priority:", ["low","medium","high"], todo["priority"]),
-                "status":      _safe_select("Status:", ["pending","in-progress","done"], todo["status"]),
-                "due_date":    questionary.text("Due date:", default=todo["due_date"]).ask() or "",
+                "title":       new_title,
+                "description": new_desc,
+                "priority":    new_pri,
+                "status":      new_stat,
+                "due_date":    new_due,
                 "tags":        [t.strip() for t in tags_raw.split(",") if t.strip()],
-                "notes":       questionary.text("Notes:",    default=todo["notes"]).ask() or "",
+                "notes":       new_notes,
             }
             _todo_update(idx, patch)
             console.print("[green]Todo updated.[/]")

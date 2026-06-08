@@ -115,7 +115,7 @@ def _build_context() -> str:
 
     events = _get_events()
     if events:
-        indexed  = [{**e, "_index": i} for i, e in enumerate(events)]
+        indexed  = [{**e, "index": i} for i, e in enumerate(events)]
         upcoming = [e for e in indexed if e.get("start", "") >= today_str]
         display  = upcoming[:10] if upcoming else indexed[:5]
         lines.append(
@@ -127,7 +127,7 @@ def _build_context() -> str:
 
     todos = _get_todos_direct()
     if todos:
-        indexed = [{**t, "_index": i} for i, t in enumerate(todos)]
+        indexed = [{**t, "index": i} for i, t in enumerate(todos)]
         active  = [t for t in indexed if t.get("status", "") != "done"][:10]
         lines.append(
             f"\nCurrent todos ({len(todos)} total, showing up to 10 non-done):\n"
@@ -149,24 +149,24 @@ When the user wants to add a todo item, respond with exactly:
 {{"action": "add_todo", "title": "...", "description": "...", "priority": "low|medium|high", "due_date": "YYYY-MM-DD or empty", "status": "pending|in-progress|done", "tags": ["tag1"], "notes": "..."}}
 
 When the user wants to update an existing todo, respond with exactly (include only the fields to change):
-{{"action": "update_todo", "index": <_index from context>, "title": "...", "status": "...", ...}}
+{{"action": "update_todo", "index": <index from context>, "title": "...", "status": "...", ...}}
 
 When the user wants to delete a todo, respond with exactly:
-{{"action": "delete_todo", "index": <_index from context>}}
+{{"action": "delete_todo", "index": <index from context>}}
 
 When the user wants to add a calendar event, respond with exactly:
 {{"action": "add_event", "title": "...", "start": "YYYY-MM-DDTHH:MM:SS", "end": "YYYY-MM-DDTHH:MM:SS", "description": "...", "location": "...", "color": "", "reminder": 15, "recurrence": "none|daily|weekly|monthly"}}
 
 When the user wants to update an existing calendar event, respond with exactly (include only the fields to change):
-{{"action": "update_event", "index": <_index from context>, "title": "...", "start": "...", ...}}
+{{"action": "update_event", "index": <index from context>, "title": "...", "start": "...", ...}}
 
 When the user wants to delete a calendar event, respond with exactly:
-{{"action": "delete_event", "index": <_index from context>}}
+{{"action": "delete_event", "index": <index from context>}}
 
 For all other messages, respond with exactly:
 {{"action": "chat", "message": "..."}}
 
-Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields. Use _index from the context to identify existing items."""
+Always respond with valid JSON only. No extra text. Use the date above to resolve relative dates like "tomorrow" or "next Monday". Infer reasonable values for optional fields. Use the "index" field shown in the context to identify existing items."""
 
 try:
     prior_messages = []
@@ -187,6 +187,15 @@ try:
         ],
     )
     raw = response.choices[0].message.content.strip()
+    _TODO_FIELDS  = {"title", "description", "priority", "due_date", "status", "tags", "notes"}
+    _EVENT_FIELDS = {"title", "start", "end", "description", "location", "color", "reminder", "recurrence"}
+
+    def _safe_index(d: dict) -> int:
+        try:
+            return int(d.get("index", -1))
+        except (TypeError, ValueError):
+            return -1
+
     try:
         data = json.loads(raw)
         action = data.get("action", "chat")
@@ -197,23 +206,34 @@ try:
             due_date = str(data.get("due_date") or "")
             status   = str(data.get("status") or "pending")
             raw_tags = data.get("tags")
-            tags     = raw_tags if isinstance(raw_tags, list) else []
+            if isinstance(raw_tags, list):
+                tags = raw_tags
+            elif isinstance(raw_tags, str) and raw_tags.strip():
+                tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+            else:
+                tags = []
             notes    = str(data.get("notes") or "")
             _add_todo(title, desc, priority, due_date, status, tags, notes)
             print(f"Done — added todo: {title}")
         elif action == "update_todo":
-            index = int(data.get("index", -1))
-            patch = {k: v for k, v in data.items() if k not in ("action", "index", "_index")}
+            index = _safe_index(data)
+            patch = {k: v for k, v in data.items() if k in _TODO_FIELDS}
             if index >= 0 and patch:
                 result = _update_todo(index, patch)
-                print(f"Done — updated todo: {result.get('todo', {}).get('title', '')}")
+                if result.get("ok"):
+                    print(f"Done — updated todo: {result.get('todo', {}).get('title', '')}")
+                else:
+                    print(f"Error updating todo: {result.get('error', 'unknown error')}")
             else:
-                print("Could not update todo — missing index or no fields to change.")
+                print("Could not update todo — missing index or no valid fields to change.")
         elif action == "delete_todo":
-            index = int(data.get("index", -1))
+            index = _safe_index(data)
             if index >= 0:
                 result = _delete_todo(index)
-                print(f"Done — deleted todo: {result.get('todo', {}).get('title', '')}")
+                if result.get("ok"):
+                    print(f"Done — deleted todo: {result.get('todo', {}).get('title', '')}")
+                else:
+                    print(f"Error deleting todo: {result.get('error', 'unknown error')}")
             else:
                 print("Could not delete todo — missing index.")
         elif action == "add_event":
@@ -223,23 +243,32 @@ try:
             description = str(data.get("description") or "")
             location    = str(data.get("location") or "")
             color       = str(data.get("color") or "")
-            reminder    = int(data.get("reminder") or 0)
+            try:
+                reminder = int(data.get("reminder") or 0)
+            except (TypeError, ValueError):
+                reminder = 0
             recurrence  = str(data.get("recurrence") or "none")
             _add_event(title, start, end, description, location, color, reminder, recurrence)
             print(f"Done — added event: {title}")
         elif action == "update_event":
-            index = int(data.get("index", -1))
-            patch = {k: v for k, v in data.items() if k not in ("action", "index", "_index")}
+            index = _safe_index(data)
+            patch = {k: v for k, v in data.items() if k in _EVENT_FIELDS}
             if index >= 0 and patch:
                 result = _update_event(index, patch)
-                print(f"Done — updated event: {result.get('event', {}).get('title', '')}")
+                if result.get("ok"):
+                    print(f"Done — updated event: {result.get('event', {}).get('title', '')}")
+                else:
+                    print(f"Error updating event: {result.get('error', 'unknown error')}")
             else:
-                print("Could not update event — missing index or no fields to change.")
+                print("Could not update event — missing index or no valid fields to change.")
         elif action == "delete_event":
-            index = int(data.get("index", -1))
+            index = _safe_index(data)
             if index >= 0:
                 result = _delete_event(index)
-                print(f"Done — deleted event: {result.get('event', {}).get('title', '')}")
+                if result.get("ok"):
+                    print(f"Done — deleted event: {result.get('event', {}).get('title', '')}")
+                else:
+                    print(f"Error deleting event: {result.get('error', 'unknown error')}")
             else:
                 print("Could not delete event — missing index.")
         else:
